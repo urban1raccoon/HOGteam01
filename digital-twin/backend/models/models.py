@@ -1,17 +1,38 @@
-from pydantic import BaseModel, Field
-from typing import List, Optional
 from datetime import datetime
+from typing import Any, Dict, List, Literal, Optional
+
+from pydantic import BaseModel, Field
+
+InfluencePointType = Literal[
+    "park",
+    "school",
+    "factory",
+    "residential",
+    "bridge",
+    "vehicle",
+    "delivery_point",
+    "warehouse",
+]
+
 
 class Location(BaseModel):
     lat: float = Field(..., description="Широта")
     lng: float = Field(..., description="Долгота")
 
+    class Config:
+        from_attributes = True
+
+
 class MapPoint(BaseModel):
     id: str
     location: Location
     name: str
-    type: str  # "warehouse", "delivery_point", "vehicle"
-    properties: dict = {}
+    type: InfluencePointType
+    properties: Dict[str, Any] = Field(default_factory=dict)
+
+    class Config:
+        from_attributes = True
+
 
 class Vehicle(BaseModel):
     id: str
@@ -19,7 +40,11 @@ class Vehicle(BaseModel):
     capacity: float
     current_location: Location
     status: str = "idle"  # idle, moving, loading, unloading
-    route: List[Location] = []
+    route: List[Location] = Field(default_factory=list)
+
+    class Config:
+        from_attributes = True
+
 
 class DeliveryPoint(BaseModel):
     id: str
@@ -29,10 +54,27 @@ class DeliveryPoint(BaseModel):
     time_window_start: Optional[str] = None
     time_window_end: Optional[str] = None
 
+    class Config:
+        from_attributes = True
+
+
+class SimulationMetrics(BaseModel):
+    ecology: float = Field(..., description="Экология")
+    traffic: float = Field(..., description="Трафик")
+    social: float = Field(..., description="Социалка")
+
+    class Config:
+        from_attributes = True
+
+
 class SimulationStep(BaseModel):
     timestamp: datetime
     vehicles: List[Vehicle]
-    metrics: dict
+    metrics: SimulationMetrics
+
+    class Config:
+        from_attributes = True
+
 
 class SimulationRequest(BaseModel):
     vehicles: List[Vehicle]
@@ -40,33 +82,51 @@ class SimulationRequest(BaseModel):
     start_time: datetime
     duration_hours: int = 8
 
+    class Config:
+        from_attributes = True
+
+
 class SimulationResponse(BaseModel):
     simulation_id: str
     steps: List[SimulationStep]
     total_distance: float
     total_time: float
     efficiency: float
+
+    class Config:
+        from_attributes = True
+
+
 class ScenarioCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    influence_point_ids: List[str] = Field(default_factory=list)
     vehicle_ids: List[str]
     delivery_point_ids: List[str]
     start_time: datetime
     duration_hours: int = 8
+
+    class Config:
+        from_attributes = True
+
 
 class Scenario(ScenarioCreate):
     id: str
     created_at: datetime
     updated_at: datetime
 
+    class Config:
+        from_attributes = True
+
+
 class ScenarioUpdate(BaseModel):
     name: Optional[str] = None
+    description: Optional[str] = None
+    influence_point_ids: Optional[List[str]] = None
     vehicle_ids: Optional[List[str]] = None
     delivery_point_ids: Optional[List[str]] = None
     start_time: Optional[datetime] = None
-    duration_hours: Optional[int] = None            
-class Park(BaseModel)  :
-    id: str
-    name: str
-    location: Location
-    capacity: int   
+    duration_hours: Optional[int] = None
+
+    class Config:
+        from_attributes = True
