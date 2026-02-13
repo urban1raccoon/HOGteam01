@@ -55,6 +55,18 @@ cover/
 *.mo
 *.pot
 
+# Виртуальное окружение
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# База данных (пусть у каждого будет своя локальная)
+app.db
+
+# Конфиги VS Code
+.vscode/
+
 # Django stuff:
 *.log
 local_settings.py
