@@ -100,6 +100,16 @@ def create_access_token(user_id: str) -> str:
 
     return f"{header_segment}.{payload_segment}.{signature_segment}"
 
+class unauthorized(Exception):
+    def __init__(self, message):
+        self.message = message
+
+    def __str__(self):
+        raise NotImplementedError
+
+    def some_method(self, *args, **kwargs):
+        raise NotImplementedError
+
 
 def decode_access_token(token: str) -> str:
     try:
