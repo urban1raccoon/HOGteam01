@@ -21,7 +21,7 @@ from models.models import (
     UserRegisterRequest,
     UserRegisterResponse,
 )
-from routers import ai, objects, scenarios, simulation
+from routers import ai, objects, simulation
 
 app = FastAPI(title="HOG maps Backend api")
 
@@ -35,7 +35,6 @@ app.add_middleware(
 )
 
 app.include_router(objects.router, prefix="/api/objects", tags=["Objects"])
-app.include_router(scenarios.router, prefix="/api/scenarios", tags=["Scenarios"])
 app.include_router(simulation.router, prefix="/api/simulation", tags=["Simulation"])
 app.include_router(ai.router, prefix="/api/ai", tags=["AI"])
 

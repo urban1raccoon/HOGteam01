@@ -97,41 +97,6 @@ class SimulationResponse(BaseModel):
     class Config:
         from_attributes = True
 
-
-class ScenarioCreate(BaseModel):
-    name: str
-    description: Optional[str] = None
-    influence_point_ids: List[str] = Field(default_factory=list)
-    vehicle_ids: List[str]
-    delivery_point_ids: List[str]
-    start_time: datetime
-    duration_hours: int = 8
-
-    class Config:
-        from_attributes = True
-
-
-class Scenario(ScenarioCreate):
-    id: str
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class ScenarioUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    influence_point_ids: Optional[List[str]] = None
-    vehicle_ids: Optional[List[str]] = None
-    delivery_point_ids: Optional[List[str]] = None
-    start_time: Optional[datetime] = None
-    duration_hours: Optional[int] = None
-
-    class Config:
-        from_attributes = True
-
 class UserRegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: str = Field(..., min_length=5, max_length=254)
