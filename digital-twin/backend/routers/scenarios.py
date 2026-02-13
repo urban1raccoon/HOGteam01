@@ -9,6 +9,7 @@ router = APIRouter()
 #ранилище сценариев
 scenarios_storage = {}
 
+@router.get("", response_model=List[Scenario], include_in_schema=False)
 @router.get("/", response_model=List[Scenario])
 async def get_scenarios():
     """Получить все сценарии"""
@@ -21,6 +22,7 @@ async def get_scenario(scenario_id: str):
         raise HTTPException(status_code=404, detail="Scenario not found")
     return scenarios_storage[scenario_id]
 
+@router.post("", response_model=Scenario, include_in_schema=False)
 @router.post("/", response_model=Scenario)
 async def create_scenario(scenario: ScenarioCreate):
     """Создать новый сценарий"""
