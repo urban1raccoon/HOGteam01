@@ -1,7 +1,8 @@
 from datetime import datetime
+import re
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 InfluencePointType = Literal[
     "park",
@@ -131,3 +132,32 @@ class ScenarioUpdate(BaseModel):
     class Config:
         from_attributes = True
 
+class UserRegisterRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=50)
+    email: str = Field(..., min_length=5, max_length=254)
+    password: str = Field(..., min_length=8, max_length=128)
+    confirm_password: str = Field(..., min_length=8, max_length=128)
+
+    @validator("username")
+    def validate_username(cls, value: str) -> str:
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", value):
+            raise ValueError(
+                "username can contain only letters, numbers, dot, underscore and dash"
+            )
+        return value
+
+    @validator("email")
+    def validate_email(cls, value: str) -> str:
+        if "@" not in value or value.count("@") != 1:
+            raise ValueError("invalid email format")
+        return value.lower()
+
+
+class UserRegisterResponse(BaseModel):
+    id: str
+    username: str
+    email: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
