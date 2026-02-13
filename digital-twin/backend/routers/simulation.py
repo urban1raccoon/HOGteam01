@@ -111,7 +111,7 @@ async def run_simulation(request: SimulationRequest):
                 if route_index < len(vehicle.route):
                     new_location = vehicle.route[route_index]
                     
-                    # Расчет пройденного расстояния
+                    # расчитать расстояние 
                     if hour > 0:
                         dist = calculate_distance(vehicle.current_location, new_location)
                         total_distance += dist
