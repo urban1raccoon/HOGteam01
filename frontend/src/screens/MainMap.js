@@ -18,9 +18,6 @@ import Map3D from '../components/Map3D';
 
 const DGIS_KEY = process.env.EXPO_PUBLIC_DGIS_KEY || '';
 
-const GROQ_API_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY || '';
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-
 const impactTypes = ['park', 'school', 'factory', 'residential', 'bridge'];
 const categoryOptions = ['education', 'park', 'medical', 'commercial', 'bridge', 'factory'];
 const demandOptions = [80, 120, 160, 220];
@@ -572,36 +569,6 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
     );
   };
 
-  const askGroq = async (messages) => {
-    if (!GROQ_API_KEY) {
-      return null;
-    }
-
-    try {
-      const response = await fetch(GROQ_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${GROQ_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: 'llama-3.1-70b-versatile',
-          temperature: 0.3,
-          messages,
-        }),
-      });
-
-      if (!response.ok) {
-        return null;
-      }
-
-      const data = await response.json();
-      return data?.choices?.[0]?.message?.content || null;
-    } catch {
-      return null;
-    }
-  };
-
   const submitAiPrompt = async () => {
     const prompt = aiInput.trim();
     if (!prompt || aiBusy) return;
@@ -613,37 +580,35 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
     setAiMessages(nextMessages);
 
     try {
+      let context = {};
       if (/мост|bridge/i.test(prompt)) {
         try {
-          const traffic = await getTrafficFlow(selectedPointId || undefined);
-          const recommendation =
-            `Вызвал функцию get_traffic_flow(${traffic.bridge_id}). ` +
-            `Через ${traffic.bridge_name} сейчас около ${traffic.base_flow_vehicles_per_hour} авто/ч. ` +
-            `При перекрытии рост нагрузки на объездные пути составит ~${traffic.detour_increase_percent}%. ` +
-            `Рекомендую включить реверсивное движение и временно ограничить грузовой поток в пиковые часы.`;
-
-          setAiMessages((prev) => [...prev, { role: 'assistant', text: recommendation }]);
+          const trafficFlow = await getTrafficFlow(selectedPointId || undefined);
+          context = { traffic_flow: trafficFlow };
         } catch {
-          setAiMessages((prev) => [
-            ...prev,
-            { role: 'assistant', text: buildLocalAgentReply(prompt) },
-          ]);
+          context = {};
         }
-      } else {
-        const content = await askGroq([
-          {
-            role: 'system',
-            content:
-              'Ты ИИ-помощник цифрового двойника города. Отвечай кратко, по делу, с рекомендациями.',
-          },
-          ...nextMessages.map((m) => ({ role: m.role, content: m.text })),
-        ]);
-
-        setAiMessages((prev) => [
-          ...prev,
-          { role: 'assistant', text: content || buildLocalAgentReply(prompt) },
-        ]);
       }
+
+      const history = nextMessages
+        .slice(-9, -1)
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .map((m) => ({ role: m.role, content: m.text }));
+
+      const response = await api.post(
+        '/api/ai/predict',
+        {
+          prompt,
+          history,
+          context,
+        },
+        { headers: authHeaders }
+      );
+
+      setAiMessages((prev) => [
+        ...prev,
+        { role: 'assistant', text: response.data?.answer || buildLocalAgentReply(prompt) },
+      ]);
     } catch {
       setAiMessages((prev) => [
         ...prev,
