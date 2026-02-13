@@ -1,10 +1,10 @@
 from fastapi import APIRouter, HTTPException
-from models import SimulationRequest, SimulationResponse, SimulationStep, Vehicle, Location
+from models import SimulationRequest, SimulationResponse, SimulationStep, SimulationMetrics, Vehicle, Location
 from objects import get_storage
 from scenarios import get_scenarios_storage
-from typing import List, Optional
+from typing import List
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 import math
 
 router = APIRouter()
@@ -47,13 +47,19 @@ async def run_simulation(request: SimulationRequest):
             step_vehicles.append(vehicle.copy())
         
         # метрики шага
-        metrics = {
-            "hour": hour,
-            "total_distance": round(total_distance, 2),
-            "vehicles_moving": sum(1 for v in step_vehicles if v.status == "moving"),
-            "vehicles_completed": sum(1 for v in step_vehicles if v.status == "completed"),
-            "vehicles_idle": sum(1 for v in step_vehicles if v.status == "idle")
-        }
+        moving_count = sum(1 for v in step_vehicles if v.status == "moving")
+        completed_count = sum(1 for v in step_vehicles if v.status == "completed")
+        total_vehicles = max(len(step_vehicles), 1)
+
+        # Базовые индексы для витринной симуляции (0..100)
+        traffic = max(0.0, min(100.0, (moving_count / total_vehicles) * 100))
+        ecology = max(0.0, min(100.0, 100 - min(total_distance, 100)))
+        social = max(0.0, min(100.0, (completed_count / total_vehicles) * 100))
+        metrics = SimulationMetrics(
+            ecology=round(ecology, 2),
+            traffic=round(traffic, 2),
+            social=round(social, 2)
+        )
         
         steps.append(SimulationStep(
             timestamp=current_time + timedelta(hours=hour),

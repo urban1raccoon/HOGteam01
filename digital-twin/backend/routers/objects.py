@@ -39,7 +39,7 @@ async def get_all_map_objects():
     
     return points
 
-#VEHICLES
+#VEHICLES- ален там будет само айди создавать на фронте не делай
 
 @router.get("/vehicles", response_model=List[Vehicle])
 async def get_vehicles():
