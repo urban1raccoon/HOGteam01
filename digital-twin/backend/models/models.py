@@ -132,11 +132,14 @@ class ScenarioUpdate(BaseModel):
     class Config:
         from_attributes = True
 
+
 class UserRegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: str = Field(..., min_length=5, max_length=254)
     password: str = Field(..., min_length=8, max_length=128)
-    confirm_password: str = Field(..., min_length=8, max_length=128)
+    confirm_password: str = Field(
+        ..., min_length=8, max_length=128, alias="confirmPassword"
+    )
 
     @validator("username")
     def validate_username(cls, value: str) -> str:
@@ -152,6 +155,9 @@ class UserRegisterRequest(BaseModel):
             raise ValueError("invalid email format")
         return value.lower()
 
+    class Config:
+        allow_population_by_field_name = True
+
 
 class UserRegisterResponse(BaseModel):
     id: str
@@ -161,3 +167,18 @@ class UserRegisterResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class UserLoginRequest(BaseModel):
+    login: str = Field(..., min_length=3, max_length=254)
+    password: str = Field(..., min_length=8, max_length=128)
+
+    @validator("login")
+    def normalize_login(cls, value: str) -> str:
+        return value.strip().lower()
+
+
+class AuthTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserRegisterResponse

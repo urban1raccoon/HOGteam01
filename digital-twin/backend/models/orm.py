@@ -2,6 +2,7 @@ from sqlalchemy import Column, String, Float, JSON, DateTime
 from database import Base
 import datetime
 
+
 class VehicleDB(Base):
     __tablename__ = "vehicles"
 
@@ -9,10 +10,11 @@ class VehicleDB(Base):
     name = Column(String)
     capacity = Column(Float)
     # Хранит объект {'lat': 0.0, 'lng': 0.0}
-    current_location = Column(JSON) 
+    current_location = Column(JSON)
     status = Column(String, default="idle")
     # Хранит список объектов [{'lat': 0.0, 'lng': 0.0}, ...]
     route = Column(JSON, default=[])
+
 
 class DeliveryPointDB(Base):
     __tablename__ = "delivery_points"
@@ -24,6 +26,7 @@ class DeliveryPointDB(Base):
     time_window_start = Column(String, nullable=True)
     time_window_end = Column(String, nullable=True)
 
+
 class SimulationResultDB(Base):
     __tablename__ = "simulation_results"
 
@@ -34,3 +37,13 @@ class SimulationResultDB(Base):
     efficiency = Column(Float)
     # Хранит весь массив SimulationStep (включая вложенные метрики и транспорт)
     steps_data = Column(JSON)
+
+
+class UserDB(Base):
+    __tablename__ = "users"
+
+    id = Column(String, primary_key=True, index=True)
+    username = Column(String, unique=True, nullable=False, index=True)
+    email = Column(String, unique=True, nullable=False, index=True)
+    password_hash = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
