@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from models import SimulationRequest, SimulationResponse, SimulationStep, Vehicle, Location
 from objects import get_storage
 from scenarios import get_scenarios_storage
-from typing import List
+from typing import Dict, List
 import uuid
 from datetime import timedelta
 import math
@@ -11,6 +11,27 @@ router = APIRouter()
 
 # хранилище симуляций
 simulations_storage = {}
+OBJECT_TYPE_ALIASES = {
+    "park": "park",
+    "парк": "park",
+    "school": "school",
+    "школа": "school",
+    "factory": "factory",
+    "завод": "factory",
+    "residential": "residential",
+    "жилой": "residential",
+    "жилой_район": "residential",
+    "bridge": "bridge",
+    "мост": "bridge",
+}
+
+OBJECT_IMPACT = {
+    "park": {"ecology": 12.0, "traffic_load": -4.0, "social_score": 10.0},
+    "school": {"ecology": -2.0, "traffic_load": 6.0, "social_score": 12.0},
+    "factory": {"ecology": -20.0, "traffic_load": 15.0, "social_score": 5.0},
+    "residential": {"ecology": -6.0, "traffic_load": 10.0, "social_score": 14.0},
+    "bridge": {"ecology": -3.0, "traffic_load": -12.0, "social_score": 7.0},
+}
 
 def analyze_city_state(objects: dict) -> dict:
     """Агрегировать состояние города по текущему storage."""
@@ -33,6 +54,39 @@ def analyze_city_state(objects: dict) -> dict:
         "ecology": round(ecology, 2),
         "traffic_load": round(traffic_load, 2),
         "social_score": round(social_score, 2),
+    }
+
+@router.get("/impact")
+async def get_object_impact(object_type: str) -> Dict[str, object]:
+    """Оценить влияние нового объекта на метрики города."""
+    normalized_type = OBJECT_TYPE_ALIASES.get(object_type.strip().lower())
+    if not normalized_type:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Unknown object type. Supported: park/school/factory/residential/bridge "
+                "(или парк/школа/завод/жилой_район/мост)"
+            ),
+        )
+
+    impact = OBJECT_IMPACT[normalized_type]
+    ecology_delta = impact["ecology"]
+
+    if ecology_delta < 0:
+        ecology_message = f"Если вы это построите, экология упадет на {abs(ecology_delta):.0f}%."
+    elif ecology_delta > 0:
+        ecology_message = f"Если вы это построите, экология вырастет на {ecology_delta:.0f}%."
+    else:
+        ecology_message = "Если вы это построите, экология не изменится."
+
+    return {
+        "object_type": normalized_type,
+        "message": ecology_message,
+        "impact": {
+            "ecology": impact["ecology"],
+            "traffic_load": impact["traffic_load"],
+            "social_score": impact["social_score"],
+        },
     }
 
 @router.post("/run", response_model=SimulationResponse)
