@@ -7,7 +7,7 @@ import os
 import time
 import uuid
 
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
@@ -40,6 +40,17 @@ app.include_router(simulation.router, prefix="/api/simulation", tags=["Simulatio
 
 TOKEN_TTL_SECONDS = 60 * 60 * 24
 AUTH_SECRET = os.getenv("AUTH_SECRET", "change-me-in-production")
+
+
+@app.get("/", include_in_schema=False)
+def root() -> dict[str, str]:
+    return {"status": "ok", "docs": "/docs"}
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> Response:
+    # Frontend favicon is not served by this backend app.
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.on_event("startup")
