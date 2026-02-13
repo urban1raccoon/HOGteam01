@@ -1,17 +1,6 @@
 from pydantic import BaseModel, Field
-from typing import Any, Dict, List, Literal, Optional
+from typing import List, Optional
 from datetime import datetime
-
-InfluencePointType = Literal[
-    "park",
-    "school",
-    "factory",
-    "residential",
-    "bridge",
-    "vehicle",
-    "delivery_point",
-    "warehouse"
-]
 
 class Location(BaseModel):
     lat: float = Field(..., description="Широта")
@@ -21,8 +10,8 @@ class MapPoint(BaseModel):
     id: str
     location: Location
     name: str
-    type: InfluencePointType
-    properties: Dict[str, Any] = Field(default_factory=dict)
+    type: str  # "warehouse", "delivery_point", "vehicle"
+    properties: dict = {}
 
 class Vehicle(BaseModel):
     id: str
@@ -30,7 +19,7 @@ class Vehicle(BaseModel):
     capacity: float
     current_location: Location
     status: str = "idle"  # idle, moving, loading, unloading
-    route: List[Location] = Field(default_factory=list)
+    route: List[Location] = []
 
 class DeliveryPoint(BaseModel):
     id: str
@@ -43,12 +32,7 @@ class DeliveryPoint(BaseModel):
 class SimulationStep(BaseModel):
     timestamp: datetime
     vehicles: List[Vehicle]
-    metrics: "SimulationMetrics"
-
-class SimulationMetrics(BaseModel):
-    ecology: float = Field(..., description="Экология")
-    traffic: float = Field(..., description="Трафик")
-    social: float = Field(..., description="Социалка")
+    metrics: dict
 
 class SimulationRequest(BaseModel):
     vehicles: List[Vehicle]
@@ -65,7 +49,6 @@ class SimulationResponse(BaseModel):
 class ScenarioCreate(BaseModel):
     name: str
     description: Optional[str] = None
-    influence_point_ids: List[str] = Field(default_factory=list)
     vehicle_ids: List[str]
     delivery_point_ids: List[str]
     start_time: datetime
@@ -78,9 +61,12 @@ class Scenario(ScenarioCreate):
 
 class ScenarioUpdate(BaseModel):
     name: Optional[str] = None
-    description: Optional[str] = None
-    influence_point_ids: Optional[List[str]] = None
     vehicle_ids: Optional[List[str]] = None
     delivery_point_ids: Optional[List[str]] = None
     start_time: Optional[datetime] = None
-    duration_hours: Optional[int] = None
+    duration_hours: Optional[int] = None            
+class Park(BaseModel)  :
+    id: str
+    name: str
+    location: Location
+    capacity: int   
