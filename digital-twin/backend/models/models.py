@@ -70,7 +70,7 @@ class SimulationMetrics(BaseModel):
 class SimulationStep(BaseModel):
     timestamp: datetime
     vehicles: List[Vehicle]
-    metrics: SimulationMetrics
+    metrics: Dict[str, Any]
 
     class Config:
         from_attributes = True
@@ -130,3 +130,4 @@ class ScenarioUpdate(BaseModel):
 
     class Config:
         from_attributes = True
+

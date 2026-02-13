@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from models import SimulationRequest, SimulationResponse, SimulationStep, SimulationMetrics, Vehicle, Location
+from models import SimulationRequest, SimulationResponse, SimulationStep, Vehicle, Location
 from objects import get_storage
 from scenarios import get_scenarios_storage
 from typing import List
@@ -11,6 +11,29 @@ router = APIRouter()
 
 # хранилище симуляций
 simulations_storage = {}
+
+def analyze_city_state(objects: dict) -> dict:
+    """Агрегировать состояние города по текущему storage."""
+    vehicles = objects.get("vehicles", [])
+    delivery_points = objects.get("delivery_points", [])
+
+    total_vehicles = len(vehicles)
+    moving_count = sum(1 for v in vehicles if v.status == "moving")
+    idle_count = sum(1 for v in vehicles if v.status == "idle")
+
+    total_capacity = sum(v.capacity for v in vehicles)
+    total_demand = sum(dp.demand for dp in delivery_points)
+    demand_coverage = min(total_capacity / total_demand, 1.0) if total_demand > 0 else 1.0
+
+    traffic_load = (moving_count / total_vehicles) * 100 if total_vehicles > 0 else 0.0
+    ecology = max(0.0, 100.0 - traffic_load * 0.6)
+    social_score = min(100.0, demand_coverage * 70 + (idle_count / total_vehicles * 30 if total_vehicles > 0 else 0.0))
+
+    return {
+        "ecology": round(ecology, 2),
+        "traffic_load": round(traffic_load, 2),
+        "social_score": round(social_score, 2),
+    }
 
 @router.post("/run", response_model=SimulationResponse)
 async def run_simulation(request: SimulationRequest):
@@ -49,17 +72,18 @@ async def run_simulation(request: SimulationRequest):
         # метрики шага
         moving_count = sum(1 for v in step_vehicles if v.status == "moving")
         completed_count = sum(1 for v in step_vehicles if v.status == "completed")
-        total_vehicles = max(len(step_vehicles), 1)
-
-        # Базовые индексы для витринной симуляции (0..100)
-        traffic = max(0.0, min(100.0, (moving_count / total_vehicles) * 100))
-        ecology = max(0.0, min(100.0, 100 - min(total_distance, 100)))
-        social = max(0.0, min(100.0, (completed_count / total_vehicles) * 100))
-        metrics = SimulationMetrics(
-            ecology=round(ecology, 2),
-            traffic=round(traffic, 2),
-            social=round(social, 2)
-        )
+        idle_count = sum(1 for v in step_vehicles if v.status == "idle")
+        city_state = analyze_city_state(get_storage())
+        metrics = {
+            "hour": hour,
+            "total_distance": round(total_distance, 2),
+            "vehicles_moving": moving_count,
+            "vehicles_completed": completed_count,
+            "vehicles_idle": idle_count,
+            "ecology": city_state["ecology"],
+            "traffic_load": city_state["traffic_load"],
+            "social_score": city_state["social_score"],
+        }
         
         steps.append(SimulationStep(
             timestamp=current_time + timedelta(hours=hour),
