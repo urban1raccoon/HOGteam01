@@ -46,3 +46,22 @@ class SimulationResponse(BaseModel):
     total_distance: float
     total_time: float
     efficiency: float
+class ScenarioCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    vehicle_ids: List[str]
+    delivery_point_ids: List[str]
+    start_time: datetime
+    duration_hours: int = 8
+
+class Scenario(ScenarioCreate):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+class ScenarioUpdate(BaseModel):
+    name: Optional[str] = None
+    vehicle_ids: Optional[List[str]] = None
+    delivery_point_ids: Optional[List[str]] = None
+    start_time: Optional[datetime] = None
+    duration_hours: Optional[int] = None            

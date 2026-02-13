@@ -9,7 +9,7 @@ import math
 
 router = APIRouter()
 
-# хранилище результатов симуляций
+# хранилище симуляций
 simulations_storage = {}
 
 @router.post("/run", response_model=SimulationResponse)
