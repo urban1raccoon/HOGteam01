@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from models import SimulationRequest, SimulationResponse, SimulationStep, Vehicle, Location
-from objects import get_storage
-from scenarios import get_scenarios_storage
+from .objects import get_storage
+from .scenarios import get_scenarios_storage
 from typing import Dict, List
 import uuid
 from datetime import timedelta
