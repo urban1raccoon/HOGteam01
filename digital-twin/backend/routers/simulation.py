@@ -212,7 +212,7 @@ async def delete_simulation(simulation_id: str):
     return {"message": "Simulation deleted"}
 
 def calculate_distance(loc1: Location, loc2: Location) -> float:
-    """Формула гаверсинуса для расчета расстояния между координатами в км"""
+    """Формула для расчета расстояния между координатами в км"""
     R = 6371  # радиус Земли в км
     
     lat1, lon1 = math.radians(loc1.lat), math.radians(loc1.lng)

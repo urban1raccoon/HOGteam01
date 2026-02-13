@@ -8,7 +8,44 @@ router = APIRouter()
 # хранилище на пока
 storage = {
     "vehicles": [],
-    "delivery_points": [],
+    "delivery_points": [
+        DeliveryPoint(
+            id="dp-education-nis",
+            name="НИШ (Школа) [education]",
+            location=Location(lat=49.9167, lng=82.5714),
+            demand=120.0,
+        ),
+        DeliveryPoint(
+            id="dp-park-zhastar",
+            name="Парк Жастар [park]",
+            location=Location(lat=49.9481, lng=82.6145),
+            demand=80.0,
+        ),
+        DeliveryPoint(
+            id="dp-bridge-irtysh",
+            name="Иртышский мост [bridge]",
+            location=Location(lat=49.9385, lng=82.5920),
+            demand=160.0,
+        ),
+        DeliveryPoint(
+            id="dp-commercial-adk",
+            name="ТРЦ ADK (Казахстан 62) [commercial]",
+            location=Location(lat=49.9575, lng=82.6105),
+            demand=200.0,
+        ),
+        DeliveryPoint(
+            id="dp-medical-central-hospital",
+            name="Центральная больница [medical]",
+            location=Location(lat=49.9442, lng=82.6231),
+            demand=240.0,
+        ),
+        DeliveryPoint(
+            id="dp-commercial-magnat",
+            name="Магазин Магнат (Куленовка) [commercial]",
+            location=Location(lat=49.9045, lng=82.5285),
+            demand=90.0,
+        ),
+    ],
     "warehouses": []
 }
 
