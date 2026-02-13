@@ -1,6 +1,5 @@
 from datetime import datetime
 import base64
-import binascii
 import hashlib
 import hmac
 import json
@@ -26,6 +25,7 @@ from routers import objects, scenarios, simulation
 
 app = FastAPI(title="HOG maps Backend api")
 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -45,14 +45,6 @@ AUTH_SECRET = os.getenv("AUTH_SECRET", "change-me-in-production")
 @app.on_event("startup")
 def create_tables() -> None:
     Base.metadata.create_all(bind=engine)
-
-
-def unauthorized(detail: str) -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail=detail,
-        headers={"WWW-Authenticate": "Bearer"},
-    )
 
 
 def hash_password(password: str) -> str:
@@ -119,67 +111,54 @@ def decode_access_token(token: str) -> str:
     expected_signature = hmac.new(
         AUTH_SECRET.encode("utf-8"), signing_input, hashlib.sha256
     ).digest()
-    try:
-        actual_signature = b64url_decode(signature_segment)
-    except (ValueError, binascii.Error) as exc:
-        raise unauthorized("Invalid token signature") from exc
+    actual_signature = b64url_decode(signature_segment)
 
     if not hmac.compare_digest(expected_signature, actual_signature):
-        raise unauthorized("Invalid token signature")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token signature",
+        )
 
     try:
         payload = json.loads(b64url_decode(payload_segment).decode("utf-8"))
-    except (ValueError, binascii.Error, json.JSONDecodeError, UnicodeDecodeError) as exc:
-        raise unauthorized("Invalid token payload") from exc
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+        ) from exc
 
     exp = payload.get("exp")
     sub = payload.get("sub")
     if not isinstance(exp, int) or exp < int(time.time()) or not isinstance(sub, str):
-        raise unauthorized("Token expired or invalid")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token expired or invalid",
+        )
 
     return sub
-
-
-def extract_bearer_token(authorization: str | None) -> str:
-    if authorization is None:
-        raise unauthorized("Missing bearer token")
-
-    auth_value = authorization.strip()
-    if not auth_value:
-        raise unauthorized("Missing bearer token")
-
-    parts = auth_value.split(" ", 1)
-    if len(parts) == 2 and parts[0].lower() == "bearer":
-        token = parts[1].strip()
-    elif len(parts) == 1:
-        # Backward compatibility for clients sending raw token value only.
-        token = parts[0].strip()
-    else:
-        raise unauthorized("Invalid authorization header")
-
-    if not token:
-        raise unauthorized("Missing bearer token")
-    return token
 
 
 def get_current_user(
     db: Session = Depends(get_db), authorization: str | None = Header(default=None)
 ) -> orm.UserDB:
-    token = extract_bearer_token(authorization)
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing bearer token",
+        )
+
+    token = authorization.split(" ", 1)[1].strip()
     user_id = decode_access_token(token)
 
     user = db.query(orm.UserDB).filter(orm.UserDB.id == user_id).first()
     if user is None:
-        raise unauthorized("User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
     return user
 
 
-@app.post(
-    "/auth/register",
-    response_model=UserRegisterResponse,
-    status_code=status.HTTP_201_CREATED,
-    include_in_schema=False,
-)
 @app.post(
     "/api/auth/register",
     response_model=UserRegisterResponse,
@@ -244,7 +223,6 @@ def register_user(payload: UserRegisterRequest, db: Session = Depends(get_db)):
     )
 
 
-@app.post("/auth/login", response_model=AuthTokenResponse, include_in_schema=False)
 @app.post("/api/auth/login", response_model=AuthTokenResponse)
 def login_user(payload: UserLoginRequest, db: Session = Depends(get_db)):
     user = (
@@ -275,7 +253,6 @@ def login_user(payload: UserLoginRequest, db: Session = Depends(get_db)):
     )
 
 
-@app.get("/auth/me", response_model=UserRegisterResponse, include_in_schema=False)
 @app.get("/api/auth/me", response_model=UserRegisterResponse)
 def auth_me(current_user: orm.UserDB = Depends(get_current_user)):
     return UserRegisterResponse(
@@ -284,8 +261,3 @@ def auth_me(current_user: orm.UserDB = Depends(get_current_user)):
         email=current_user.email,
         created_at=current_user.created_at,
     )
-
-
-@app.get("/", include_in_schema=False)
-def root():
-    return {"status": "ok", "docs": "/docs"}
