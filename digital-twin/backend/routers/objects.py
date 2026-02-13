@@ -5,7 +5,7 @@ import uuid
 
 router = APIRouter()
 
-# Временное хранилище
+# хранилище на пока
 storage = {
     "vehicles": [],
     "delivery_points": [],
@@ -17,7 +17,7 @@ async def get_all_map_objects():
     """Получить все объекты на карте"""
     points = []
     
-    # Транспорт
+    # транспорт
     for vehicle in storage["vehicles"]:
         points.append(MapPoint(
             id=vehicle.id,
@@ -27,7 +27,7 @@ async def get_all_map_objects():
             properties={"capacity": vehicle.capacity, "status": vehicle.status}
         ))
     
-    # Точки доставки
+    # точки доставки
     for dp in storage["delivery_points"]:
         points.append(MapPoint(
             id=dp.id,
