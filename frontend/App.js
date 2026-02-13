@@ -13,7 +13,13 @@ import {
 } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
 
-const API_BASE_URL = 'https://spicy-bats-rescue.loca.lt';
+const API_BASE_URL = 'https://web-production-e7886.up.railway.app';
+const API_BASE_URL_NORMALIZED = API_BASE_URL.replace(/\/+$/, '');
+
+function buildApiUrl(path) {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${API_BASE_URL_NORMALIZED}${normalizedPath}`;
+}
 
 const theme = {
   bg: '#06070C',
@@ -213,7 +219,7 @@ export default function App() {
       if (body !== undefined) headers['Content-Type'] = 'application/json';
       if (token) headers.Authorization = `Bearer ${token}`;
 
-      const res = await fetch(`${API_BASE_URL}${path}`, {
+      const res = await fetch(buildApiUrl(path), {
         method,
         headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -266,7 +272,7 @@ export default function App() {
 
     try {
       if (mode === 'register') {
-        const res = await fetch(`${API_BASE_URL}/api/auth/register`, {
+        const res = await fetch(buildApiUrl('/api/auth/register'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -291,7 +297,7 @@ export default function App() {
           confirmPassword: '',
         }));
       } else {
-        const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+        const res = await fetch(buildApiUrl('/api/auth/login'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
