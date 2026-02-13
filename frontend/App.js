@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'http://100.115.92.195:8000';
 
 const theme = {
   bg: '#06070C',
