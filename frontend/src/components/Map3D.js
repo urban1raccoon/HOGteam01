@@ -78,8 +78,6 @@ function buildHtml({ points, apiKey }) {
     let engine = null;
     let map = null;
     let markers = [];
-    let trafficControl = null;
-    let trafficLayer = null;
 
     function sendToHost(payload) {
       const msg = JSON.stringify(payload);
@@ -191,32 +189,22 @@ function buildHtml({ points, apiKey }) {
     }
 
     function enable2GISTraffic() {
-      if (!map || engine !== '2gis' || !window.mapgl) return;
+      if (!map || engine !== '2gis') return;
 
       try {
-        if (window.mapgl.TrafficControl) {
-          trafficControl = new window.mapgl.TrafficControl(map, { position: 'topLeft' });
-          if (trafficControl && typeof trafficControl.show === 'function') {
-            trafficControl.show();
-          } else if (trafficControl && typeof trafficControl.toggle === 'function') {
-            trafficControl.toggle();
-          }
-          sendToHost({ type: 'traffic-ready', payload: '2gis-live' });
-          return;
+        if (typeof map.showTraffic === 'function') {
+          map.showTraffic();
         }
 
-        if (window.mapgl.Traffic) {
-          trafficLayer = new window.mapgl.Traffic(map, { isVisible: true });
-          if (trafficLayer && typeof trafficLayer.show === 'function') {
-            trafficLayer.show();
-          }
+        const trafficOn = typeof map.isTrafficOn === 'function' ? map.isTrafficOn() : true;
+        if (trafficOn) {
           sendToHost({ type: 'traffic-ready', payload: '2gis-live' });
           return;
         }
 
         sendToHost({
           type: 'warning',
-          payload: '2GIS traffic layer is unavailable in this SDK build.',
+          payload: 'Traffic layer is off. Try enabling traffic from map control.',
         });
       } catch {
         sendToHost({
@@ -362,10 +350,7 @@ function buildHtml({ points, apiKey }) {
       }
 
       const script = document.createElement('script');
-      script.src =
-        'https://mapgl.2gis.com/api/js/v1?key=' +
-        encodeURIComponent(API_KEY) +
-        '&plugins=traffic';
+      script.src = 'https://mapgl.2gis.com/api/js/v1?key=' + encodeURIComponent(API_KEY);
       script.async = true;
 
       script.onload = function () {
@@ -386,6 +371,8 @@ function buildHtml({ points, apiKey }) {
             key: API_KEY,
             pitch: 60,
             rotation: -17,
+            trafficOn: true,
+            trafficControl: 'topRight',
           });
 
           if (typeof map.setPitch === 'function') map.setPitch(60);
@@ -399,6 +386,24 @@ function buildHtml({ points, apiKey }) {
                 latitude: Number(e.lngLat.lat),
                 longitude: Number(e.lngLat.lng),
               },
+            });
+          });
+
+          map.on('trafficshow', () => {
+            sendToHost({ type: 'traffic-ready', payload: '2gis-live' });
+          });
+
+          map.on('trafficscore', (event) => {
+            const score = Number(event && event.score);
+            if (Number.isFinite(score)) {
+              sendToHost({ type: 'traffic-score', payload: score });
+            }
+          });
+
+          map.on('traffichide', () => {
+            sendToHost({
+              type: 'warning',
+              payload: 'Traffic layer is hidden.',
             });
           });
 
@@ -461,6 +466,14 @@ export default function Map3D({ points = [], apiKey, onMapPress, style }) {
 
       if (data.type === 'traffic-ready') {
         setStatusText('2GIS traffic layer enabled (green/yellow/red).');
+        return;
+      }
+
+      if (data.type === 'traffic-score') {
+        const score = Number(data.payload);
+        if (Number.isFinite(score)) {
+          setStatusText(`2GIS traffic score: ${score}/10 (green/yellow/red on roads).`);
+        }
         return;
       }
 
