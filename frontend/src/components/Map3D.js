@@ -78,6 +78,8 @@ function buildHtml({ points, apiKey }) {
     let engine = null;
     let map = null;
     let markers = [];
+    let trafficControl = null;
+    let trafficLayer = null;
 
     function sendToHost(payload) {
       const msg = JSON.stringify(payload);
@@ -186,6 +188,42 @@ function buildHtml({ points, apiKey }) {
       });
 
       fitToPoints(points);
+    }
+
+    function enable2GISTraffic() {
+      if (!map || engine !== '2gis' || !window.mapgl) return;
+
+      try {
+        if (window.mapgl.TrafficControl) {
+          trafficControl = new window.mapgl.TrafficControl(map, { position: 'topLeft' });
+          if (trafficControl && typeof trafficControl.show === 'function') {
+            trafficControl.show();
+          } else if (trafficControl && typeof trafficControl.toggle === 'function') {
+            trafficControl.toggle();
+          }
+          sendToHost({ type: 'traffic-ready', payload: '2gis-live' });
+          return;
+        }
+
+        if (window.mapgl.Traffic) {
+          trafficLayer = new window.mapgl.Traffic(map, { isVisible: true });
+          if (trafficLayer && typeof trafficLayer.show === 'function') {
+            trafficLayer.show();
+          }
+          sendToHost({ type: 'traffic-ready', payload: '2gis-live' });
+          return;
+        }
+
+        sendToHost({
+          type: 'warning',
+          payload: '2GIS traffic layer is unavailable in this SDK build.',
+        });
+      } catch {
+        sendToHost({
+          type: 'warning',
+          payload: 'Failed to enable 2GIS traffic layer.',
+        });
+      }
     }
 
     function add3DBuildings() {
@@ -324,7 +362,10 @@ function buildHtml({ points, apiKey }) {
       }
 
       const script = document.createElement('script');
-      script.src = 'https://mapgl.2gis.com/api/js/v1?key=' + encodeURIComponent(API_KEY);
+      script.src =
+        'https://mapgl.2gis.com/api/js/v1?key=' +
+        encodeURIComponent(API_KEY) +
+        '&plugins=traffic';
       script.async = true;
 
       script.onload = function () {
@@ -361,6 +402,7 @@ function buildHtml({ points, apiKey }) {
             });
           });
 
+          enable2GISTraffic();
           setPoints(POINTS);
           sendToHost({ type: 'ready', payload: '2gis' });
         } catch {
@@ -417,11 +459,14 @@ export default function Map3D({ points = [], apiKey, onMapPress, style }) {
         return;
       }
 
+      if (data.type === 'traffic-ready') {
+        setStatusText('2GIS traffic layer enabled (green/yellow/red).');
+        return;
+      }
+
       if (data.type === 'ready') {
         if (data.payload === 'maplibre') {
           setStatusText('Fallback map active (MapLibre).');
-        } else {
-          setStatusText('');
         }
       }
     },
