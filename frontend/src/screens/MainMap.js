@@ -38,23 +38,23 @@ function toNumber(value, fallback = 0) {
 }
 
 function buildChartData(overview) {
-  const baseFlow = toNumber(overview?.base_flow_vehicles_per_hour, 135);
+  const baseFlow = toNumber(overview?.base_flow_vehicles_per_hour, 120);
   const detour = toNumber(overview?.detour_increase_percent, 18);
   const ecologyBase = toNumber(overview?.city_metrics?.ecology, 74);
   const socialBase = toNumber(overview?.city_metrics?.social_score, 66);
   const movingRatio = toNumber(overview?.moving_ratio_percent, 35) / 100;
 
-  const trafficStart = clamp(baseFlow * 0.7, 55, 420);
-  const trafficGrowth = 1 + detour / 180;
+  const trafficStart = clamp(baseFlow * 0.68, 50, 440);
+  const trafficGrowth = 1 + detour / 190;
 
   const traffic = graphLabels.map((_, index) =>
     Math.round(trafficStart * (1 + index * 0.06 * trafficGrowth))
   );
   const ecology = graphLabels.map((_, index) =>
-    Math.round(clamp(ecologyBase - index * (1.1 + movingRatio * 1.8), 0, 100))
+    Math.round(clamp(ecologyBase - index * (1.2 + movingRatio * 2.0), 0, 100))
   );
   const social = graphLabels.map((_, index) =>
-    Math.round(clamp(socialBase - index * (0.8 + detour / 120), 0, 100))
+    Math.round(clamp(socialBase - index * (0.9 + detour / 110), 0, 100))
   );
 
   return { labels: graphLabels, traffic, ecology, social };
@@ -130,14 +130,38 @@ function ActionButton({ label, onPress, danger, disabled, small }) {
   );
 }
 
+function ChoiceChip({ label, selected, onPress }) {
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.chip,
+        selected && styles.chipSelected,
+        pressed && styles.chipPressed,
+      ]}
+      onPress={onPress}
+    >
+      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 export default function MainMap({ token, onLogout, isGuest = false }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [lastAction, setLastAction] = useState('Waiting for transport update');
   const [showPredictions, setShowPredictions] = useState(true);
 
+  const [vehicles, setVehicles] = useState([]);
+  const [selectedVehicleId, setSelectedVehicleId] = useState('');
   const [transportOverview, setTransportOverview] = useState(null);
   const [chartData, setChartData] = useState(() => buildChartData(null));
+
+  const [form, setForm] = useState({
+    name: '',
+    capacity: '120',
+    lat: '49.95',
+    lng: '82.61',
+  });
 
   const [aiOpen, setAiOpen] = useState(false);
   const [aiInput, setAiInput] = useState('');
@@ -154,31 +178,204 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
     return { Authorization: `Bearer ${token}` };
   }, [token]);
 
+  const currentVehicle = useMemo(
+    () => vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || null,
+    [vehicles, selectedVehicleId]
+  );
+
   const pieData = useMemo(() => buildPieData(transportOverview), [transportOverview]);
 
-  const loadTransportOverview = useCallback(async () => {
+  const mapPoints = useMemo(
+    () =>
+      vehicles
+        .map((vehicle) => ({
+          id: vehicle.id,
+          name: `${vehicle.name} [${vehicle.status}]`,
+          category: 'vehicle',
+          latitude: toNumber(vehicle?.current_location?.lat, NaN),
+          longitude: toNumber(vehicle?.current_location?.lng, NaN),
+        }))
+        .filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude)),
+    [vehicles]
+  );
+
+  const syncVehicles = useCallback((nextVehicles) => {
+    setVehicles(nextVehicles);
+    setSelectedVehicleId((prev) => {
+      if (nextVehicles.some((vehicle) => vehicle.id === prev)) return prev;
+      return nextVehicles[0]?.id || '';
+    });
+  }, []);
+
+  const loadTransportOverview = useCallback(
+    async (options = {}) => {
+      const { silent = false } = options;
+      if (!silent) {
+        setLoading(true);
+        setError('');
+      }
+
+      try {
+        const response = await api.get('/api/simulation/transport/overview', { headers: authHeaders });
+        const next = response.data || {};
+        setTransportOverview(next);
+        setChartData(buildChartData(next));
+        setLastAction('Change graph updated');
+        return next;
+      } catch (e) {
+        if (!silent) {
+          const message = parseError(e);
+          setError(message);
+          setLastAction('Transport update failed');
+        }
+        throw e;
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [authHeaders]
+  );
+
+  const loadVehicles = useCallback(
+    async (options = {}) => {
+      const { silent = false } = options;
+      if (!silent) {
+        setLoading(true);
+        setError('');
+      }
+
+      try {
+        const response = await api.get('/api/simulation/transport/vehicles', { headers: authHeaders });
+        const next = Array.isArray(response.data) ? response.data : [];
+        syncVehicles(next);
+        return next;
+      } catch (e) {
+        if (!silent) {
+          const message = parseError(e);
+          setError(message);
+          setLastAction('Transport load failed');
+        }
+        throw e;
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [authHeaders, syncVehicles]
+  );
+
+  const refreshAll = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const response = await api.get('/api/simulation/transport/overview', { headers: authHeaders });
-      const next = response.data || {};
-      setTransportOverview(next);
-      setChartData(buildChartData(next));
-      setLastAction('Change graph updated');
-      return next;
+      const [vehiclesResponse, overviewResponse] = await Promise.all([
+        api.get('/api/simulation/transport/vehicles', { headers: authHeaders }),
+        api.get('/api/simulation/transport/overview', { headers: authHeaders }),
+      ]);
+
+      const nextVehicles = Array.isArray(vehiclesResponse.data) ? vehiclesResponse.data : [];
+      const nextOverview = overviewResponse.data || {};
+      syncVehicles(nextVehicles);
+      setTransportOverview(nextOverview);
+      setChartData(buildChartData(nextOverview));
+      setLastAction('Transport and graph refreshed');
+      return { nextVehicles, nextOverview };
     } catch (e) {
-      const message = parseError(e);
-      setError(message);
-      setLastAction('Transport update failed');
+      setError(parseError(e));
+      setLastAction('Refresh failed');
       throw e;
     } finally {
       setLoading(false);
     }
-  }, [authHeaders]);
+  }, [authHeaders, syncVehicles]);
 
   useEffect(() => {
-    loadTransportOverview().catch(() => null);
-  }, [loadTransportOverview]);
+    refreshAll().catch(() => null);
+  }, [refreshAll]);
+
+  const onChangeForm = (key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const createVehicle = async () => {
+    const capacity = toNumber(form.capacity, NaN);
+    const lat = toNumber(form.lat, NaN);
+    const lng = toNumber(form.lng, NaN);
+    if (!Number.isFinite(capacity) || capacity <= 0) {
+      setError('Capacity must be a positive number');
+      return;
+    }
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setError('Latitude and longitude must be valid numbers');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const payload = {
+        id: '',
+        name: form.name.trim() || `Transport-${Date.now().toString().slice(-4)}`,
+        capacity,
+        current_location: { lat, lng },
+        status: 'idle',
+        route: [],
+      };
+      await api.post('/api/simulation/transport/vehicles', payload, { headers: authHeaders });
+      setForm((prev) => ({ ...prev, name: '' }));
+      await refreshAll();
+      setLastAction('Transport created');
+    } catch (e) {
+      setError(parseError(e));
+      setLastAction('Create transport failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleVehicleStatus = async () => {
+    if (!currentVehicle) return;
+    const nextStatus = currentVehicle.status === 'moving' ? 'idle' : 'moving';
+
+    setLoading(true);
+    setError('');
+    try {
+      await api.put(
+        `/api/simulation/transport/vehicles/${currentVehicle.id}`,
+        {
+          ...currentVehicle,
+          status: nextStatus,
+          route: Array.isArray(currentVehicle.route) ? currentVehicle.route : [],
+        },
+        { headers: authHeaders }
+      );
+      await refreshAll();
+      setLastAction(`Status changed to ${nextStatus}`);
+    } catch (e) {
+      setError(parseError(e));
+      setLastAction('Status update failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteVehicle = async () => {
+    if (!selectedVehicleId) return;
+
+    setLoading(true);
+    setError('');
+    try {
+      await api.delete(`/api/simulation/transport/vehicles/${selectedVehicleId}`, {
+        headers: authHeaders,
+      });
+      await refreshAll();
+      setLastAction('Transport deleted');
+    } catch (e) {
+      setError(parseError(e));
+      setLastAction('Delete transport failed');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const buildLocalAgentReply = useCallback(
     (prompt, overview = transportOverview) => {
@@ -197,7 +394,7 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
 
       if (/трафик|traffic|пробк/.test(text)) {
         return (
-          `Прогноз: текущая транспортная нагрузка близка к ${overview?.moving_ratio_percent ?? '~'}%. ` +
+          `Прогноз: текущая транспортная нагрузка ${overview?.moving_ratio_percent ?? '~'}%. ` +
           'Риски: рост времени в пути на перегруженных узлах. ' +
           'Действия: перераспределить рейсы вне пика, увеличить приоритет ОТ, корректировать циклы светофоров.'
         );
@@ -212,7 +409,7 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
       }
 
       return (
-        'Могу оценить изменения трафика, экологии и логистики по текущим данным. ' +
+        'Могу оценить изменения трафика, экологии и логистики по текущему транспорту. ' +
         'Уточни объект/район и временной горизонт.'
       );
     },
@@ -230,11 +427,19 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
     setAiMessages(nextMessages);
 
     try {
-      const overview = await loadTransportOverview();
+      const overview = await loadTransportOverview({ silent: true });
       const history = nextMessages
         .slice(-9, -1)
         .filter((m) => m.role === 'user' || m.role === 'assistant')
         .map((m) => ({ role: m.role, content: m.text }));
+
+      const compactVehicles = vehicles.slice(0, 20).map((vehicle) => ({
+        id: vehicle.id,
+        name: vehicle.name,
+        status: vehicle.status,
+        capacity: vehicle.capacity,
+        location: vehicle.current_location,
+      }));
 
       const response = await api.post(
         '/api/ai/predict',
@@ -243,6 +448,7 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
           history,
           context: {
             transport_overview: overview,
+            transport_vehicles: compactVehicles,
             graph_snapshot: chartData,
             guest_mode: Boolean(isGuest),
           },
@@ -269,21 +475,22 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>HOGMAPS</Text>
-          <Text style={styles.subtitle}>2GIS map + AI + change graph</Text>
+          <Text style={styles.subtitle}>2GIS map + transport + AI + change graph</Text>
         </View>
 
         <View style={styles.headerActions}>
-          <ActionButton label="Refresh changes" onPress={() => loadTransportOverview().catch(() => null)} disabled={loading} small />
+          <ActionButton label="Refresh all" onPress={() => refreshAll().catch(() => null)} disabled={loading} small />
           <ActionButton label="Logout" onPress={onLogout} danger small />
         </View>
       </View>
 
       <View style={styles.mapWrap}>
-        <Map3D points={[]} apiKey={DGIS_KEY} style={styles.map} />
+        <Map3D points={mapPoints} apiKey={DGIS_KEY} style={styles.map} />
       </View>
 
       <View style={styles.mapInfoRow}>
         <Text style={styles.statsText}>2GIS key: {DGIS_KEY ? 'active' : 'missing'}</Text>
+        <Text style={styles.statsText}>Transport on map: {mapPoints.length}</Text>
         {loading ? <ActivityIndicator size="small" color="#a78bfa" /> : null}
         <ActionButton
           label={showPredictions ? 'Hide graph' : 'Show graph'}
@@ -295,6 +502,64 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
       <ScrollView contentContainerStyle={styles.content}>
+        <SectionCard title="Transport">
+          <View style={styles.formGrid}>
+            <TextInput
+              value={form.name}
+              onChangeText={(value) => onChangeForm('name', value)}
+              placeholder="Transport name"
+              placeholderTextColor="#b6a5ff"
+              style={styles.input}
+            />
+            <TextInput
+              value={form.capacity}
+              onChangeText={(value) => onChangeForm('capacity', value)}
+              placeholder="Capacity"
+              placeholderTextColor="#b6a5ff"
+              style={styles.input}
+              keyboardType="numeric"
+            />
+            <TextInput
+              value={form.lat}
+              onChangeText={(value) => onChangeForm('lat', value)}
+              placeholder="Latitude"
+              placeholderTextColor="#b6a5ff"
+              style={styles.input}
+              keyboardType="numeric"
+            />
+            <TextInput
+              value={form.lng}
+              onChangeText={(value) => onChangeForm('lng', value)}
+              placeholder="Longitude"
+              placeholderTextColor="#b6a5ff"
+              style={styles.input}
+              keyboardType="numeric"
+            />
+          </View>
+
+          <View style={styles.row}>
+            <ActionButton label="Add transport" onPress={createVehicle} disabled={loading} />
+            <ActionButton label="Reload transport" onPress={() => loadVehicles().catch(() => null)} disabled={loading} />
+          </View>
+
+          <Text style={styles.label}>Select transport</Text>
+          <ScrollView horizontal contentContainerStyle={styles.chipsRow}>
+            {vehicles.map((vehicle) => (
+              <ChoiceChip
+                key={vehicle.id}
+                label={`${vehicle.name} [${vehicle.status}]`}
+                selected={vehicle.id === selectedVehicleId}
+                onPress={() => setSelectedVehicleId(vehicle.id)}
+              />
+            ))}
+          </ScrollView>
+
+          <View style={styles.row}>
+            <ActionButton label="Toggle status" onPress={toggleVehicleStatus} disabled={loading || !selectedVehicleId} />
+            <ActionButton label="Delete transport" onPress={deleteVehicle} danger disabled={loading || !selectedVehicleId} />
+          </View>
+        </SectionCard>
+
         {showPredictions ? (
           <SectionCard title="Change graph">
             <Text style={styles.metaText}>Traffic / Ecology / Social trend</Text>
@@ -384,7 +649,7 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
             <TextInput
               value={aiInput}
               onChangeText={setAiInput}
-              placeholder="Например: что изменится в трафике при ремонте моста?"
+              placeholder="Например: что изменится в трафике, если 2 транспорта будут moving?"
               placeholderTextColor="#b6a5ff"
               style={styles.aiInput}
               multiline
@@ -490,6 +755,60 @@ const styles = StyleSheet.create({
   metaText: {
     color: '#ddd6fe',
     fontSize: 13,
+  },
+  formGrid: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  input: {
+    minWidth: 120,
+    flexGrow: 1,
+    minHeight: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#6d28d9',
+    backgroundColor: '#140b2b',
+    color: '#f5f3ff',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  row: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  label: {
+    color: '#ddd6fe',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  chipsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  chip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#4c1d95',
+    backgroundColor: '#1a1034',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  chipSelected: {
+    borderColor: '#a78bfa',
+    backgroundColor: '#3b1a77',
+  },
+  chipPressed: {
+    opacity: 0.9,
+  },
+  chipText: {
+    color: '#ddd6fe',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  chipTextSelected: {
+    color: '#f5f3ff',
   },
   chart: {
     borderRadius: 12,

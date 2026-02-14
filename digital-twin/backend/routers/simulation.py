@@ -133,6 +133,48 @@ def build_transport_snapshot(bridge_id: Optional[str] = None) -> Dict[str, objec
     }
 
 
+@router.get("/transport/vehicles", response_model=List[Vehicle])
+async def get_transport_vehicles() -> List[Vehicle]:
+    storage = get_storage()
+    return storage.get("vehicles", [])
+
+
+@router.post("/transport/vehicles", response_model=Vehicle)
+async def create_transport_vehicle(vehicle: Vehicle) -> Vehicle:
+    storage = get_storage()
+    if not vehicle.id:
+        vehicle.id = f"vehicle-{uuid.uuid4()}"
+    storage.setdefault("vehicles", []).append(vehicle)
+    return vehicle
+
+
+@router.put("/transport/vehicles/{vehicle_id}", response_model=Vehicle)
+async def update_transport_vehicle(vehicle_id: str, vehicle: Vehicle) -> Vehicle:
+    storage = get_storage()
+    vehicles = storage.setdefault("vehicles", [])
+
+    index = next((idx for idx, item in enumerate(vehicles) if item.id == vehicle_id), None)
+    if index is None:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+
+    vehicle.id = vehicle_id
+    vehicles[index] = vehicle
+    return vehicle
+
+
+@router.delete("/transport/vehicles/{vehicle_id}")
+async def delete_transport_vehicle(vehicle_id: str) -> Dict[str, str]:
+    storage = get_storage()
+    vehicles = storage.setdefault("vehicles", [])
+
+    existing = any(item.id == vehicle_id for item in vehicles)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+
+    storage["vehicles"] = [item for item in vehicles if item.id != vehicle_id]
+    return {"message": "Vehicle deleted"}
+
+
 @router.get("/transport/overview")
 async def get_transport_overview(bridge_id: Optional[str] = None) -> Dict[str, object]:
     return build_transport_snapshot(bridge_id)

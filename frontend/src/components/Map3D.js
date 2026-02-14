@@ -91,6 +91,7 @@ function buildHtml({ points, apiKey }) {
 
     function makeDotColor(category) {
       const palette = {
+        vehicle: '#60a5fa',
         education: '#38bdf8',
         park: '#4ade80',
         factory: '#f97316',
