@@ -475,7 +475,7 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>HOGMAPS</Text>
-          <Text style={styles.subtitle}>2GIS map + transport + AI + change graph</Text>
+          <Text style={styles.subtitle}>Control center</Text>
         </View>
 
         <View style={styles.headerActions}>
