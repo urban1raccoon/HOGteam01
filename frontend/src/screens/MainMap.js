@@ -11,7 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { LineChart, PieChart } from 'react-native-chart-kit';
+import { LineChart } from 'react-native-chart-kit';
 
 import api from '../api';
 import Map3D from '../components/Map3D';
@@ -58,49 +58,6 @@ function buildChartData(overview) {
   );
 
   return { labels: graphLabels, traffic, ecology, social };
-}
-
-function buildPieData(overview) {
-  const moving = toNumber(overview?.moving_vehicles, 0);
-  const idle = toNumber(overview?.idle_vehicles, 0);
-  const completed = toNumber(overview?.completed_vehicles, 0);
-  const total = moving + idle + completed;
-
-  if (total <= 0) {
-    return [
-      {
-        name: 'No data',
-        population: 1,
-        color: '#6d28d9',
-        legendFontColor: '#d8d4ff',
-        legendFontSize: 11,
-      },
-    ];
-  }
-
-  return [
-    {
-      name: 'Moving',
-      population: moving,
-      color: '#f59e0b',
-      legendFontColor: '#d8d4ff',
-      legendFontSize: 11,
-    },
-    {
-      name: 'Idle',
-      population: idle,
-      color: '#22d3ee',
-      legendFontColor: '#d8d4ff',
-      legendFontSize: 11,
-    },
-    {
-      name: 'Completed',
-      population: completed,
-      color: '#a3e635',
-      legendFontColor: '#d8d4ff',
-      legendFontSize: 11,
-    },
-  ];
 }
 
 function SectionCard({ title, children }) {
@@ -162,8 +119,6 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
     if (!token) return {};
     return { Authorization: `Bearer ${token}` };
   }, [token]);
-
-  const pieData = useMemo(() => buildPieData(transportOverview), [transportOverview]);
 
   const loadTransportOverview = useCallback(async () => {
     setLoading(true);
@@ -314,7 +269,6 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
       <ScrollView contentContainerStyle={styles.content}>
         {showPredictions ? (
           <SectionCard title="Change graph">
-            <Text style={styles.metaText}>Traffic / Ecology / Social trend</Text>
             <LineChart
               data={{
                 labels: chartData.labels,
@@ -344,17 +298,6 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
               chartConfig={stylesForCharts.line}
               style={styles.chart}
               bezier
-            />
-
-            <PieChart
-              data={pieData}
-              width={chartWidth}
-              height={210}
-              chartConfig={stylesForCharts.pie}
-              accessor="population"
-              backgroundColor="transparent"
-              paddingLeft="4"
-              absolute
             />
 
             {transportOverview ? (
@@ -428,10 +371,6 @@ const stylesForCharts = {
       strokeWidth: '1',
       stroke: '#c4b5fd',
     },
-  },
-  pie: {
-    color: (opacity = 1) => `rgba(216, 212, 255, ${opacity})`,
-    labelColor: (opacity = 1) => `rgba(216, 212, 255, ${opacity})`,
   },
 };
 
