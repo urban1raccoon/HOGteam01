@@ -26,7 +26,7 @@ class UserRegisterRequest(BaseModel):
         return value.lower()
 
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
 
 
 class UserRegisterResponse(BaseModel):
