@@ -21,7 +21,7 @@ from models.models import (
     UserRegisterRequest,
     UserRegisterResponse,
 )
-from routers import ai
+from routers import ai, routes
 
 app = FastAPI(title="HOG maps Backend api")
 
@@ -35,6 +35,7 @@ app.add_middleware(
 )
 
 app.include_router(ai.router, prefix="/api/ai", tags=["AI"])
+app.include_router(routes.router, prefix="/api/routes", tags=["Routes"])
 
 TOKEN_TTL_SECONDS = 60 * 60 * 24
 AUTH_SECRET = os.getenv("AUTH_SECRET", "change-me-in-production")
@@ -280,9 +281,3 @@ def auth_me(current_user: orm.UserDB = Depends(get_current_user)):
         email=current_user.email,
         created_at=current_user.created_at,
     )
-import joblib
-
-model = joblib.load("ml/model.pkl")
-
-def predict(data):
-    return float(model.predict([data])[0])
