@@ -21,7 +21,7 @@ from models.models import (
     UserRegisterRequest,
     UserRegisterResponse,
 )
-from routers import ai, objects, simulation
+from routers import ai
 
 app = FastAPI(title="HOG maps Backend api")
 
@@ -34,8 +34,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(objects.router, prefix="/api/objects", tags=["Objects"])
-app.include_router(simulation.router, prefix="/api/simulation", tags=["Simulation"])
 app.include_router(ai.router, prefix="/api/ai", tags=["AI"])
 
 TOKEN_TTL_SECONDS = 60 * 60 * 24

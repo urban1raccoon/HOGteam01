@@ -7,8 +7,6 @@ from urllib import error, request
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-from .objects import get_storage
-from .simulation import analyze_city_state, build_transport_snapshot
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -61,45 +59,19 @@ def get_int_env(name: str, default: int) -> int:
 
 
 def build_runtime_context(client_context: Dict[str, Any]) -> Dict[str, Any]:
-    storage = get_storage()
-    vehicles = storage.get("vehicles", [])
-    delivery_points = storage.get("delivery_points", [])
-
-    bridge_id = None
-    if isinstance(client_context.get("bridge_id"), str):
-        bridge_id = client_context["bridge_id"]
-
-    transport_snapshot = build_transport_snapshot(bridge_id=bridge_id)
-    city_metrics = analyze_city_state(vehicles, delivery_points)
-
+    """Build context from client-provided data (2GIS map data, user selections, etc.)"""
     return {
-        "runtime": {
-            "vehicles_count": len(vehicles),
-            "delivery_points_count": len(delivery_points),
-        },
-        "transport_overview": transport_snapshot,
-        "city_metrics": city_metrics,
         "client_context": client_context,
     }
 
 
 def build_local_fallback(prompt: str, context: Dict[str, Any]) -> str:
+    """Simple fallback response when xAI API is unavailable"""
     text = str(prompt or "").lower()
-    transport = context.get("transport_overview", {})
-    city = context.get("city_metrics", {})
+    client_context = context.get("client_context", {})
 
-    flow = transport.get("base_flow_vehicles_per_hour")
-    detour = transport.get("detour_increase_percent")
-    ecology = city.get("ecology")
-    traffic = city.get("traffic_load")
-
+    # Basic responses based on common queries
     if "мост" in text or "bridge" in text:
-        if flow is not None and detour is not None:
-            return (
-                f"Прогноз: поток около {flow} авто/ч, при ограничениях рост нагрузки на объезды ~{detour}%. "
-                "Риски: локальные заторы и задержки доставки. "
-                "Действия: реверсивное движение, временные окна для грузовиков, ручная перенастройка светофоров."
-            )
         return (
             "Прогноз: при перекрытии моста трафик сместится на объездные маршруты. "
             "Риски: рост времени в пути и перегрузка соседних улиц. "
@@ -107,35 +79,22 @@ def build_local_fallback(prompt: str, context: Dict[str, Any]) -> str:
         )
 
     if "трафик" in text or "traffic" in text or "пробк" in text:
-        if traffic is not None:
-            return (
-                f"Прогноз: текущая нагрузка около {traffic}%. "
-                "Риски: ухудшение пропускной способности на магистралях в часы пик. "
-                "Действия: адаптивные циклы светофоров, приоритет ОТ, распределение рейсов вне пика."
-            )
         return (
-            "Прогноз: трафик вырастет на ключевых узлах в пиковые часы. "
-            "Риски: задержки в доставке и перерасход топлива. "
-            "Действия: адаптивные светофоры, выделение коридоров, сдвиг части рейсов вне пика."
+            "Прогноз: трафик может вырасти на ключевых узлах в пиковые часы. "
+            "Риски: задержки и перерасход топлива. "
+            "Действия: адаптивные светофоры, выделение коридоров, оптимизация маршрутов."
         )
 
     if "эколог" in text or "air" in text or "выброс" in text:
-        if ecology is not None:
-            return (
-                f"Прогноз: индекс экологии сейчас около {ecology}. "
-                "Риски: локальные превышения загрязнения в перегруженных зонах. "
-                "Действия: ограничение транзита через жилые кварталы, мониторинг промзон, перераспределение потоков."
-            )
         return (
-            "Прогноз: без допмер экологическая нагрузка может вырасти. "
+            "Прогноз: экологическая нагрузка зависит от транспортного потока. "
             "Риски: рост выбросов в районах с плотным трафиком. "
-            "Действия: ограничить транзит, усилить контроль промзон, перераспределить маршруты."
+            "Действия: ограничить транзит через жилые зоны, контроль промзон, перераспределение потоков."
         )
 
     return (
-        "Прогноз: при текущей конфигурации узкие места связаны с транспортной нагрузкой. "
-        "Риски: рост времени доставки и локальные перегрузки сети. "
-        "Действия: уточни объект/район/горизонт расчета, затем я дам численный план с приоритетами."
+        "Я помогу проанализировать городскую инфраструктуру. "
+        "Уточни объект/район/параметр для детального анализа."
     )
 
 
