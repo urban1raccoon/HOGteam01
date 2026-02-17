@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
+import * as Location from 'expo-location';
 
 import api from '../api';
 import Map3D from '../components/Map3D';
@@ -102,6 +103,13 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
   const [lastAction, setLastAction] = useState('Waiting for transport update');
   const [showPredictions, setShowPredictions] = useState(true);
 
+  const [origin, setOrigin] = useState(null);
+  const [destination, setDestination] = useState(null);
+  const [route, setRoute] = useState([]);
+  const [routeInfo, setRouteInfo] = useState(null);
+  const [routeBusy, setRouteBusy] = useState(false);
+  const [routeError, setRouteError] = useState('');
+
   const [transportOverview, setTransportOverview] = useState(null);
   const [chartData, setChartData] = useState(() => buildChartData(null));
 
@@ -143,6 +151,141 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
   useEffect(() => {
     loadTransportOverview().catch(() => null);
   }, [loadTransportOverview]);
+
+  const resetNavigation = useCallback(() => {
+    setOrigin(null);
+    setDestination(null);
+    setRoute([]);
+    setRouteInfo(null);
+    setRouteError('');
+    setLastAction('Tap map to set start point (A)');
+  }, []);
+
+  const requestGpsOrigin = useCallback(async () => {
+    setRouteError('');
+    try {
+      const permissions = await Location.requestForegroundPermissionsAsync();
+      if (permissions.status !== 'granted') {
+        setLastAction('Location permission denied. Tap map to set start point (A).');
+        return;
+      }
+
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      const latitude = toNumber(pos?.coords?.latitude, NaN);
+      const longitude = toNumber(pos?.coords?.longitude, NaN);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        setLastAction('Failed to read GPS position. Tap map to set start point (A).');
+        return;
+      }
+
+      setOrigin({ latitude, longitude, source: 'gps' });
+      setLastAction('GPS start point (A) is set. Tap destination (B) on map.');
+    } catch (e) {
+      setLastAction('Location lookup failed. Tap map to set start point (A).');
+      setRouteError(parseError(e));
+    }
+  }, []);
+
+  useEffect(() => {
+    requestGpsOrigin().catch(() => null);
+  }, [requestGpsOrigin]);
+
+  const buildRoute = useCallback(
+    async (from, to) => {
+      if (!from || !to) return;
+
+      setRouteBusy(true);
+      setRouteError('');
+
+      try {
+        const response = await api.post(
+          '/api/routes/optimize',
+          {
+            origin: [from.longitude, from.latitude],
+            destination: [to.longitude, to.latitude],
+            transport_mode: 'driving',
+            include_traffic_prediction: false,
+            use_ai_recommendation: false,
+          },
+          { headers: authHeaders }
+        );
+
+        const payload = response.data || {};
+        const routes = Array.isArray(payload.routes) ? payload.routes : [];
+        const recommended = Number.isInteger(payload.recommended_route_index)
+          ? payload.recommended_route_index
+          : 0;
+        const selected = routes[recommended] || routes[0] || null;
+        const geometry = Array.isArray(selected?.geometry) ? selected.geometry : [];
+
+        setRoute(geometry);
+        setRouteInfo(selected);
+        setLastAction(selected?.summary ? `Route ready: ${selected.summary}` : 'Route ready');
+      } catch (e) {
+        setRoute([]);
+        setRouteInfo(null);
+        setRouteError(parseError(e));
+        setLastAction('Route build failed');
+      } finally {
+        setRouteBusy(false);
+      }
+    },
+    [authHeaders]
+  );
+
+  const onMapPress = useCallback(
+    (coords) => {
+      if (routeBusy) return;
+      const latitude = toNumber(coords?.latitude, NaN);
+      const longitude = toNumber(coords?.longitude, NaN);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+
+      const clicked = { latitude, longitude, source: 'map' };
+      setRouteError('');
+
+      if (!origin) {
+        setOrigin({ ...clicked, source: 'manual' });
+        setDestination(null);
+        setRoute([]);
+        setRouteInfo(null);
+        setLastAction('Start point (A) is set. Tap destination (B) on map.');
+        return;
+      }
+
+      setDestination(clicked);
+      buildRoute(origin, clicked);
+    },
+    [origin, buildRoute, routeBusy]
+  );
+
+  const mapPoints = useMemo(() => {
+    const points = [];
+
+    if (origin) {
+      points.push({
+        id: 'origin',
+        name: origin.source === 'gps' ? 'Me (A)' : 'Start (A)',
+        category: 'vehicle',
+        latitude: origin.latitude,
+        longitude: origin.longitude,
+      });
+    }
+
+    if (destination) {
+      points.push({
+        id: 'destination',
+        name: 'Destination (B)',
+        category: 'general',
+        latitude: destination.latitude,
+        longitude: destination.longitude,
+      });
+    }
+
+    return points;
+  }, [origin, destination]);
 
   const buildLocalAgentReply = useCallback(
     (prompt, overview = transportOverview) => {
@@ -244,19 +387,41 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
       </View>
 
       <View style={styles.mapWrap}>
-        <Map3D points={[]} apiKey={DGIS_KEY} style={styles.map} />
+        <Map3D points={mapPoints} route={route} apiKey={DGIS_KEY} onMapPress={onMapPress} style={styles.map} />
       </View>
 
       <View style={styles.mapInfoRow}>
         <Text style={styles.statsText}>2GIS key: {DGIS_KEY ? 'active' : 'missing'}</Text>
         <Text style={styles.statsText}>Congestion: {transportOverview?.congestion_level || 'unknown'}</Text>
         {loading ? <ActivityIndicator size="small" color="#a78bfa" /> : null}
+        {routeBusy ? <ActivityIndicator size="small" color="#22d3ee" /> : null}
         <ActionButton
           label={showPredictions ? 'Hide graph' : 'Show graph'}
           onPress={() => setShowPredictions((v) => !v)}
           small
         />
       </View>
+
+      <View style={styles.mapInfoRow}>
+        <Text style={styles.statsText}>
+          Start: {origin ? (origin.source === 'gps' ? 'GPS' : 'manual') : 'tap map (A)'}
+        </Text>
+        <Text style={styles.statsText}>Destination: {destination ? 'set' : 'tap map (B)'}</Text>
+        <ActionButton label="Use my location" onPress={() => requestGpsOrigin().catch(() => null)} disabled={routeBusy} small />
+        <ActionButton label="Reset A/B" onPress={resetNavigation} danger disabled={routeBusy} small />
+      </View>
+
+      {routeInfo ? (
+        <Text style={styles.metaText}>
+          Route: {toNumber(routeInfo.distance_km, 0)} km ·{' '}
+          {Math.round(
+            toNumber(routeInfo.duration_with_traffic_minutes, routeInfo.duration_minutes || 0)
+          )}{' '}
+          min
+        </Text>
+      ) : null}
+
+      {routeError ? <Text style={styles.errorText}>{routeError}</Text> : null}
 
       <View style={styles.legendRow}>
         <LegendItem color="#16a34a" label="Зеленый: свободно" />

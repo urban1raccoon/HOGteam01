@@ -32,8 +32,26 @@ function normalizePoints(points) {
     .filter(Boolean);
 }
 
-function buildHtml({ points, apiKey }) {
-  const safePoints = normalizePoints(points);
+function normalizeRoute(route) {
+  if (!Array.isArray(route)) return [];
+  return route
+    .map((point) => {
+      if (Array.isArray(point) && point.length >= 2) {
+        const longitude = Number(point[0]);
+        const latitude = Number(point[1]);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+        return [longitude, latitude];
+      }
+
+      const longitude = Number(point?.longitude);
+      const latitude = Number(point?.latitude);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+      return [longitude, latitude];
+    })
+    .filter(Boolean);
+}
+
+function buildHtml({ apiKey }) {
   const safeKey = (apiKey || '').trim();
 
   return `<!doctype html>
@@ -66,18 +84,24 @@ function buildHtml({ points, apiKey }) {
       border: 2px solid #00121f;
       box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.2);
     }
+    .dg-route {
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
   <div id="map"></div>
 
   <script>
-    const POINTS = ${JSON.stringify(safePoints)};
+    const POINTS = [];
     const API_KEY = ${JSON.stringify(safeKey)};
 
     let engine = null;
     let map = null;
     let markers = [];
+    let routeLine = null;
+    let pendingPoints = null;
+    let pendingRoute = null;
 
     function sendToHost(payload) {
       const msg = JSON.stringify(payload);
@@ -103,6 +127,25 @@ function buildHtml({ points, apiKey }) {
       return palette[String(category || '').toLowerCase()] || '#2dd4bf';
     }
 
+    function normalizeRouteCoordinates(incoming) {
+      if (!Array.isArray(incoming)) return [];
+      return incoming
+        .map((point) => {
+          if (Array.isArray(point) && point.length >= 2) {
+            const lon = Number(point[0]);
+            const lat = Number(point[1]);
+            if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+            return [lon, lat];
+          }
+
+          const lon = Number(point && point.longitude);
+          const lat = Number(point && point.latitude);
+          if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+          return [lon, lat];
+        })
+        .filter(Boolean);
+    }
+
     function clearMarkers() {
       markers.forEach((marker) => {
         if (!marker) return;
@@ -110,6 +153,33 @@ function buildHtml({ points, apiKey }) {
         if (engine === 'maplibre' && typeof marker.remove === 'function') marker.remove();
       });
       markers = [];
+    }
+
+    function fitBounds(minLng, minLat, maxLng, maxLat) {
+      if (!map) return;
+      if (!(Number.isFinite(minLng) && Number.isFinite(maxLng) && Number.isFinite(minLat) && Number.isFinite(maxLat))) {
+        return;
+      }
+
+      try {
+        if (engine === '2gis' && typeof map.fitBounds === 'function') {
+          map.fitBounds([minLng, minLat], [maxLng, maxLat], {
+            padding: 50,
+            maxZoom: 15,
+            duration: 400,
+          });
+        }
+
+        if (engine === 'maplibre' && typeof map.fitBounds === 'function') {
+          map.fitBounds([[minLng, minLat], [maxLng, maxLat]], {
+            padding: 50,
+            maxZoom: 15,
+            duration: 400,
+          });
+        }
+      } catch {
+        // fit bounds is best-effort only.
+      }
     }
 
     function fitToPoints(points) {
@@ -122,33 +192,14 @@ function buildHtml({ points, apiKey }) {
       const minLat = Math.min.apply(null, lats);
       const maxLat = Math.max.apply(null, lats);
 
-      if (!(Number.isFinite(minLng) && Number.isFinite(maxLng) && Number.isFinite(minLat) && Number.isFinite(maxLat))) {
-        return;
-      }
-
-      if (engine === '2gis' && typeof map.fitBounds === 'function') {
-        map.fitBounds([minLng, minLat], [maxLng, maxLat], {
-          padding: 50,
-          maxZoom: 15,
-          duration: 400,
-        });
-      }
-
-      if (engine === 'maplibre' && typeof map.fitBounds === 'function') {
-        map.fitBounds(
-          [minLng, minLat],
-          [maxLng, maxLat],
-          {
-            padding: 50,
-            maxZoom: 15,
-            duration: 400,
-          }
-        );
-      }
+      fitBounds(minLng, minLat, maxLng, maxLat);
     }
 
     function setPoints(points) {
-      if (!map) return;
+      if (!map) {
+        pendingPoints = Array.isArray(points) ? points : [];
+        return;
+      }
 
       clearMarkers();
 
@@ -186,6 +237,100 @@ function buildHtml({ points, apiKey }) {
       });
 
       fitToPoints(points);
+    }
+
+    function clearRoute() {
+      if (engine === '2gis') {
+        if (routeLine && typeof routeLine.destroy === 'function') routeLine.destroy();
+        routeLine = null;
+        return;
+      }
+
+      if (engine === 'maplibre' && map) {
+        try {
+          if (map.getLayer && map.getLayer('route-line')) {
+            map.removeLayer('route-line');
+          }
+          if (map.getSource && map.getSource('route-source')) {
+            map.removeSource('route-source');
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    function fitToRoute(coordinates) {
+      if (!coordinates || coordinates.length < 2) return;
+      const lngs = coordinates.map((c) => c[0]);
+      const lats = coordinates.map((c) => c[1]);
+      const minLng = Math.min.apply(null, lngs);
+      const maxLng = Math.max.apply(null, lngs);
+      const minLat = Math.min.apply(null, lats);
+      const maxLat = Math.max.apply(null, lats);
+      fitBounds(minLng, minLat, maxLng, maxLat);
+    }
+
+    function setRoute(incoming) {
+      if (!map) {
+        pendingRoute = incoming;
+        return;
+      }
+
+      const coordinates = normalizeRouteCoordinates(incoming);
+      clearRoute();
+
+      if (coordinates.length < 2) {
+        sendToHost({ type: 'route-cleared' });
+        return;
+      }
+
+      if (engine === '2gis' && window.mapgl) {
+        try {
+          routeLine = new window.mapgl.Polyline(map, {
+            coordinates: coordinates,
+            width: 6,
+            color: '#22d3ee',
+          });
+          fitToRoute(coordinates);
+          sendToHost({ type: 'route-ready', payload: { engine: '2gis', points: coordinates.length } });
+        } catch {
+          sendToHost({ type: 'warning', payload: 'Failed to draw route on 2GIS map.' });
+        }
+        return;
+      }
+
+      if (engine === 'maplibre' && window.maplibregl && map) {
+        try {
+          const feature = {
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: coordinates },
+            properties: {},
+          };
+
+          if (map.getSource && map.getSource('route-source')) {
+            map.getSource('route-source').setData(feature);
+          } else {
+            map.addSource('route-source', { type: 'geojson', data: feature });
+            map.addLayer({
+              id: 'route-line',
+              type: 'line',
+              source: 'route-source',
+              layout: { 'line-join': 'round', 'line-cap': 'round' },
+              paint: {
+                'line-color': '#22d3ee',
+                'line-width': 4,
+                'line-opacity': 0.9,
+              },
+            });
+          }
+
+          fitToRoute(coordinates);
+          sendToHost({ type: 'route-ready', payload: { engine: 'maplibre', points: coordinates.length } });
+        } catch {
+          sendToHost({ type: 'warning', payload: 'Failed to draw route on fallback map.' });
+        }
+      }
     }
 
     function enable2GISTraffic() {
@@ -273,6 +418,15 @@ function buildHtml({ points, apiKey }) {
         if (message && message.type === 'set-points') {
           setPoints(Array.isArray(message.payload) ? message.payload : []);
         }
+
+        if (message && message.type === 'set-route') {
+          setRoute(message.payload);
+        }
+
+        if (message && message.type === 'clear-route') {
+          clearRoute();
+          sendToHost({ type: 'route-cleared' });
+        }
       });
     }
 
@@ -297,7 +451,12 @@ function buildHtml({ points, apiKey }) {
 
         map.on('load', () => {
           add3DBuildings();
-          setPoints(POINTS);
+          setPoints(pendingPoints || POINTS);
+          pendingPoints = null;
+          if (pendingRoute) {
+            setRoute(pendingRoute);
+            pendingRoute = null;
+          }
           sendToHost({ type: 'ready', payload: 'maplibre' });
         });
 
@@ -408,7 +567,12 @@ function buildHtml({ points, apiKey }) {
           });
 
           enable2GISTraffic();
-          setPoints(POINTS);
+          setPoints(pendingPoints || POINTS);
+          pendingPoints = null;
+          if (pendingRoute) {
+            setRoute(pendingRoute);
+            pendingRoute = null;
+          }
           sendToHost({ type: 'ready', payload: '2gis' });
         } catch {
           sendToHost({
@@ -435,6 +599,15 @@ function buildHtml({ points, apiKey }) {
       setPoints(Array.isArray(incoming) ? incoming : []);
     };
 
+    window.__setRoute = (incoming) => {
+      setRoute(incoming);
+    };
+
+    window.__clearRoute = () => {
+      clearRoute();
+      sendToHost({ type: 'route-cleared' });
+    };
+
     attachSharedMessageListener();
     init2GIS();
   </script>
@@ -442,13 +615,13 @@ function buildHtml({ points, apiKey }) {
 </html>`;
 }
 
-export default function Map3D({ points = [], apiKey, onMapPress, style }) {
+export default function Map3D({ points = [], route = [], apiKey, onMapPress, style }) {
   const iframeRef = useRef(null);
   const webViewRef = useRef(null);
   const [iframeReady, setIframeReady] = useState(false);
   const [statusText, setStatusText] = useState('');
 
-  const html = useMemo(() => buildHtml({ points, apiKey }), [points, apiKey]);
+  const html = useMemo(() => buildHtml({ apiKey }), [apiKey]);
 
   const handleBridgeMessage = useCallback(
     (data) => {
@@ -519,6 +692,33 @@ export default function Map3D({ points = [], apiKey, onMapPress, style }) {
     `;
     webViewRef.current.injectJavaScript(js);
   }, [points, iframeReady]);
+
+  useEffect(() => {
+    const normalized = normalizeRoute(route);
+
+    if (Platform.OS === 'web') {
+      if (!iframeRef.current || !iframeReady) return;
+      iframeRef.current.contentWindow?.postMessage(
+        normalized.length ? { type: 'set-route', payload: normalized } : { type: 'clear-route' },
+        '*'
+      );
+      return;
+    }
+
+    if (!webViewRef.current) return;
+
+    const js = normalized.length
+      ? `
+          window.__setRoute && window.__setRoute(${JSON.stringify(normalized)});
+          true;
+        `
+      : `
+          window.__clearRoute && window.__clearRoute();
+          true;
+        `;
+
+    webViewRef.current.injectJavaScript(js);
+  }, [route, iframeReady]);
 
   return (
     <View style={[styles.container, style]}>
