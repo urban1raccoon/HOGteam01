@@ -280,3 +280,9 @@ def auth_me(current_user: orm.UserDB = Depends(get_current_user)):
         email=current_user.email,
         created_at=current_user.created_at,
     )
+import joblib
+
+model = joblib.load("ml/model.pkl")
+
+def predict(data):
+    return float(model.predict([data])[0])
