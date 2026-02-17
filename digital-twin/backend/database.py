@@ -13,7 +13,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
-# зависимостьдля роутеров
+# зависимостьдля роутеров 
 def get_db():
     db = SessionLocal()
     try:
