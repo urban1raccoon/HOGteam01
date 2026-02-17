@@ -16,17 +16,19 @@ import * as Location from 'expo-location';
 
 import api from '../api';
 import Map3D from '../components/Map3D';
+import LanguageSelector from '../components/LanguageSelector';
+import { useI18n } from '../i18n';
 
 const DGIS_KEY = process.env.EXPO_PUBLIC_DGIS_KEY || '0dd55685-621b-43a8-bac3-b1d8ca27d3da';
 const chartWidth = Math.max(320, Dimensions.get('window').width - 56);
 const graphLabels = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6'];
 
-function parseError(error) {
+function parseError(error, fallback = 'Request failed') {
   const detail = error?.response?.data?.detail;
   if (Array.isArray(detail)) {
     return detail.map((d) => d?.msg || JSON.stringify(d)).join('; ');
   }
-  return detail || error?.message || 'Request failed';
+  return detail || error?.message || fallback;
 }
 
 function clamp(value, min, max) {
@@ -98,9 +100,10 @@ function LegendItem({ color, label }) {
 }
 
 export default function MainMap({ token, onLogout, isGuest = false }) {
+  const { t } = useI18n();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [lastAction, setLastAction] = useState('Waiting for transport update');
+  const [lastAction, setLastAction] = useState(() => t('map.status.waiting_transport'));
   const [showPredictions, setShowPredictions] = useState(true);
 
   const [origin, setOrigin] = useState(null);
@@ -116,10 +119,10 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiInput, setAiInput] = useState('');
   const [aiBusy, setAiBusy] = useState(false);
-  const [aiMessages, setAiMessages] = useState([
+  const [aiMessages, setAiMessages] = useState(() => [
     {
       role: 'assistant',
-      text: 'Я AI-агент цифрового двойника. Спроси, например: "Как изменится трафик в ближайшие часы?"',
+      text: t('ai.welcome'),
     },
   ]);
 
@@ -136,17 +139,17 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
       const next = response.data || {};
       setTransportOverview(next);
       setChartData(buildChartData(next));
-      setLastAction('Change graph updated');
+      setLastAction(t('map.status.change_graph_updated'));
       return next;
     } catch (e) {
-      const message = parseError(e);
+      const message = parseError(e, t('common.request_failed'));
       setError(message);
-      setLastAction('Transport update failed');
+      setLastAction(t('map.status.transport_update_failed'));
       throw e;
     } finally {
       setLoading(false);
     }
-  }, [authHeaders]);
+  }, [authHeaders, t]);
 
   useEffect(() => {
     loadTransportOverview().catch(() => null);
@@ -158,15 +161,15 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
     setRoute([]);
     setRouteInfo(null);
     setRouteError('');
-    setLastAction('Tap map to set start point (A)');
-  }, []);
+    setLastAction(t('map.status.tap_to_set_a'));
+  }, [t]);
 
   const requestGpsOrigin = useCallback(async () => {
     setRouteError('');
     try {
       const permissions = await Location.requestForegroundPermissionsAsync();
       if (permissions.status !== 'granted') {
-        setLastAction('Location permission denied. Tap map to set start point (A).');
+        setLastAction(t('map.status.location_denied'));
         return;
       }
 
@@ -177,17 +180,17 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
       const latitude = toNumber(pos?.coords?.latitude, NaN);
       const longitude = toNumber(pos?.coords?.longitude, NaN);
       if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-        setLastAction('Failed to read GPS position. Tap map to set start point (A).');
+        setLastAction(t('map.status.location_read_failed'));
         return;
       }
 
       setOrigin({ latitude, longitude, source: 'gps' });
-      setLastAction('GPS start point (A) is set. Tap destination (B) on map.');
+      setLastAction(t('map.status.gps_a_set_tap_b'));
     } catch (e) {
-      setLastAction('Location lookup failed. Tap map to set start point (A).');
-      setRouteError(parseError(e));
+      setLastAction(t('map.status.location_lookup_failed'));
+      setRouteError(parseError(e, t('common.request_failed')));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     requestGpsOrigin().catch(() => null);
@@ -223,17 +226,21 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
 
         setRoute(geometry);
         setRouteInfo(selected);
-        setLastAction(selected?.summary ? `Route ready: ${selected.summary}` : 'Route ready');
+        setLastAction(
+          selected?.summary
+            ? t('map.status.route_ready_summary', { summary: selected.summary })
+            : t('map.status.route_ready')
+        );
       } catch (e) {
         setRoute([]);
         setRouteInfo(null);
-        setRouteError(parseError(e));
-        setLastAction('Route build failed');
+        setRouteError(parseError(e, t('common.request_failed')));
+        setLastAction(t('map.status.route_build_failed'));
       } finally {
         setRouteBusy(false);
       }
     },
-    [authHeaders]
+    [authHeaders, t]
   );
 
   const onMapPress = useCallback(
@@ -251,14 +258,14 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
         setDestination(null);
         setRoute([]);
         setRouteInfo(null);
-        setLastAction('Start point (A) is set. Tap destination (B) on map.');
+        setLastAction(t('map.status.start_set_tap_b'));
         return;
       }
 
       setDestination(clicked);
       buildRoute(origin, clicked);
     },
-    [origin, buildRoute, routeBusy]
+    [origin, buildRoute, routeBusy, t]
   );
 
   const mapPoints = useMemo(() => {
@@ -267,7 +274,7 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
     if (origin) {
       points.push({
         id: 'origin',
-        name: origin.source === 'gps' ? 'Me (A)' : 'Start (A)',
+        name: origin.source === 'gps' ? t('map.point.me_a') : t('map.point.start_a'),
         category: 'vehicle',
         latitude: origin.latitude,
         longitude: origin.longitude,
@@ -277,7 +284,7 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
     if (destination) {
       points.push({
         id: 'destination',
-        name: 'Destination (B)',
+        name: t('map.point.destination_b'),
         category: 'general',
         latitude: destination.latitude,
         longitude: destination.longitude,
@@ -285,7 +292,7 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
     }
 
     return points;
-  }, [origin, destination]);
+  }, [origin, destination, t]);
 
   const buildLocalAgentReply = useCallback(
     (prompt, overview = transportOverview) => {
@@ -295,35 +302,25 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
       const ecology = toNumber(overview?.city_metrics?.ecology, 0);
 
       if (/мост|bridge/.test(text)) {
-        return (
-          `Прогноз: поток ${flow || '~'} авто/ч, рост на объездах около ${detour || '~'}%. ` +
-          'Риски: локальные заторы и задержка доставок. ' +
-          'Действия: реверсивное движение, ручная настройка светофоров, ограничение грузовиков в пик.'
-        );
+        return t('ai.fallback.bridge', {
+          flow: flow || '~',
+          detour: detour || '~',
+        });
       }
 
       if (/трафик|traffic|пробк/.test(text)) {
-        return (
-          `Прогноз: текущая транспортная нагрузка близка к ${overview?.moving_ratio_percent ?? '~'}%. ` +
-          'Риски: рост времени в пути на перегруженных узлах. ' +
-          'Действия: перераспределить рейсы вне пика, увеличить приоритет ОТ, корректировать циклы светофоров.'
-        );
+        return t('ai.fallback.traffic', {
+          moving: overview?.moving_ratio_percent ?? '~',
+        });
       }
 
       if (/эколог|air|выброс/.test(text)) {
-        return (
-          `Прогноз: индекс экологии около ${ecology || '~'}. ` +
-          'Риски: локальное ухудшение качества воздуха в загруженных районах. ' +
-          'Действия: ограничить транзит через жилые кварталы и перераспределить потоки.'
-        );
+        return t('ai.fallback.ecology', { ecology: ecology || '~' });
       }
 
-      return (
-        'Могу оценить изменения трафика, экологии и логистики по текущим данным. ' +
-        'Уточни объект/район и временной горизонт.'
-      );
+      return t('ai.fallback.default');
     },
-    [transportOverview]
+    [transportOverview, t]
   );
 
   const submitAiPrompt = async () => {
@@ -377,12 +374,18 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>HOGMAPS</Text>
-          <Text style={styles.subtitle}>Control center</Text>
+          <Text style={styles.subtitle}>{t('map.control_center')}</Text>
         </View>
 
         <View style={styles.headerActions}>
-          <ActionButton label="Refresh changes" onPress={() => loadTransportOverview().catch(() => null)} disabled={loading} small />
-          <ActionButton label="Logout" onPress={onLogout} danger small />
+          <LanguageSelector compact />
+          <ActionButton
+            label={t('map.refresh_changes')}
+            onPress={() => loadTransportOverview().catch(() => null)}
+            disabled={loading}
+            small
+          />
+          <ActionButton label={t('map.logout')} onPress={onLogout} danger small />
         </View>
       </View>
 
@@ -391,12 +394,16 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
       </View>
 
       <View style={styles.mapInfoRow}>
-        <Text style={styles.statsText}>2GIS key: {DGIS_KEY ? 'active' : 'missing'}</Text>
-        <Text style={styles.statsText}>Congestion: {transportOverview?.congestion_level || 'unknown'}</Text>
+        <Text style={styles.statsText}>
+          {t('map.dgis_key')}: {DGIS_KEY ? t('map.active') : t('map.missing')}
+        </Text>
+        <Text style={styles.statsText}>
+          {t('map.congestion')}: {transportOverview?.congestion_level || t('common.unknown')}
+        </Text>
         {loading ? <ActivityIndicator size="small" color="#a78bfa" /> : null}
         {routeBusy ? <ActivityIndicator size="small" color="#22d3ee" /> : null}
         <ActionButton
-          label={showPredictions ? 'Hide graph' : 'Show graph'}
+          label={showPredictions ? t('map.hide_graph') : t('map.show_graph')}
           onPress={() => setShowPredictions((v) => !v)}
           small
         />
@@ -404,36 +411,51 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
 
       <View style={styles.mapInfoRow}>
         <Text style={styles.statsText}>
-          Start: {origin ? (origin.source === 'gps' ? 'GPS' : 'manual') : 'tap map (A)'}
+          {t('map.start_label')}:{' '}
+          {origin ? (origin.source === 'gps' ? 'GPS' : t('map.manual')) : t('map.tap_map_a')}
         </Text>
-        <Text style={styles.statsText}>Destination: {destination ? 'set' : 'tap map (B)'}</Text>
-        <ActionButton label="Use my location" onPress={() => requestGpsOrigin().catch(() => null)} disabled={routeBusy} small />
-        <ActionButton label="Reset A/B" onPress={resetNavigation} danger disabled={routeBusy} small />
+        <Text style={styles.statsText}>
+          {t('map.destination_label')}: {destination ? t('map.destination_set') : t('map.tap_map_b')}
+        </Text>
+        <ActionButton
+          label={t('map.use_my_location')}
+          onPress={() => requestGpsOrigin().catch(() => null)}
+          disabled={routeBusy}
+          small
+        />
+        <ActionButton
+          label={t('map.reset_ab')}
+          onPress={resetNavigation}
+          danger
+          disabled={routeBusy}
+          small
+        />
       </View>
 
       {routeInfo ? (
         <Text style={styles.metaText}>
-          Route: {toNumber(routeInfo.distance_km, 0)} km ·{' '}
-          {Math.round(
-            toNumber(routeInfo.duration_with_traffic_minutes, routeInfo.duration_minutes || 0)
-          )}{' '}
-          min
+          {t('map.route_info', {
+            km: toNumber(routeInfo.distance_km, 0),
+            min: Math.round(
+              toNumber(routeInfo.duration_with_traffic_minutes, routeInfo.duration_minutes || 0)
+            ),
+          })}
         </Text>
       ) : null}
 
       {routeError ? <Text style={styles.errorText}>{routeError}</Text> : null}
 
       <View style={styles.legendRow}>
-        <LegendItem color="#16a34a" label="Зеленый: свободно" />
-        <LegendItem color="#eab308" label="Желтый: средняя загрузка" />
-        <LegendItem color="#dc2626" label="Красный: пробка" />
+        <LegendItem color="#16a34a" label={t('map.legend_green')} />
+        <LegendItem color="#eab308" label={t('map.legend_yellow')} />
+        <LegendItem color="#dc2626" label={t('map.legend_red')} />
       </View>
 
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
       <ScrollView contentContainerStyle={styles.content}>
         {showPredictions ? (
-          <SectionCard title="Change graph">
+          <SectionCard title={t('map.section.change_graph')}>
             <LineChart
               data={{
                 labels: chartData.labels,
@@ -454,7 +476,7 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
                     strokeWidth: 2,
                   },
                 ],
-                legend: ['Traffic', 'Ecology', 'Social'],
+                legend: [t('map.metric.traffic'), t('map.metric.ecology'), t('map.metric.social')],
               }}
               width={chartWidth}
               height={220}
@@ -468,31 +490,35 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
             {transportOverview ? (
               <View style={styles.impactCard}>
                 <Text style={styles.impactText}>
-                  Flow: {transportOverview.base_flow_vehicles_per_hour} авто/ч | Detour: {transportOverview.detour_increase_percent}% | Congestion: {transportOverview.congestion_level}
+                  {t('map.flow')}: {transportOverview.base_flow_vehicles_per_hour} {t('map.vehicles_per_hour')} |{' '}
+                  {t('map.detour')}: {transportOverview.detour_increase_percent}% | {t('map.congestion')}:{' '}
+                  {transportOverview.congestion_level}
                 </Text>
                 <Text style={styles.metaText}>
-                  Ecology: {transportOverview?.city_metrics?.ecology} | Traffic load: {transportOverview?.city_metrics?.traffic_load} | Social: {transportOverview?.city_metrics?.social_score}
+                  {t('map.metric.ecology')}: {transportOverview?.city_metrics?.ecology} |{' '}
+                  {t('map.metric.traffic')}: {transportOverview?.city_metrics?.traffic_load} |{' '}
+                  {t('map.metric.social')}: {transportOverview?.city_metrics?.social_score}
                 </Text>
               </View>
             ) : null}
           </SectionCard>
         ) : null}
 
-        <SectionCard title="System status">
+        <SectionCard title={t('map.system_status')}>
           <Text style={styles.metaText}>{lastAction}</Text>
         </SectionCard>
       </ScrollView>
 
       <Pressable style={styles.aiFab} onPress={() => setAiOpen(true)}>
-        <Text style={styles.aiFabText}>AI Agent</Text>
+        <Text style={styles.aiFabText}>{t('ai.agent')}</Text>
       </Pressable>
 
       <Modal visible={aiOpen} transparent animationType="slide" onRequestClose={() => setAiOpen(false)}>
         <View style={styles.aiOverlay}>
           <View style={styles.aiPanel}>
             <View style={styles.aiHeader}>
-              <Text style={styles.aiTitle}>AI Agent</Text>
-              <ActionButton label="Close" onPress={() => setAiOpen(false)} danger small />
+              <Text style={styles.aiTitle}>{t('ai.agent')}</Text>
+              <ActionButton label={t('ai.close')} onPress={() => setAiOpen(false)} danger small />
             </View>
 
             <ScrollView style={styles.aiMessages} contentContainerStyle={styles.aiMessagesContent}>
@@ -509,13 +535,17 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
             <TextInput
               value={aiInput}
               onChangeText={setAiInput}
-              placeholder="Например: что изменится в трафике при перекрытии моста?"
+              placeholder={t('ai.placeholder')}
               placeholderTextColor="#b6a5ff"
               style={styles.aiInput}
               multiline
             />
 
-            <ActionButton label={aiBusy ? 'Thinking...' : 'Send'} onPress={submitAiPrompt} disabled={aiBusy} />
+            <ActionButton
+              label={aiBusy ? t('ai.thinking') : t('ai.send')}
+              onPress={submitAiPrompt}
+              disabled={aiBusy}
+            />
           </View>
         </View>
       </Modal>

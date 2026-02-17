@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
+import { useI18n } from '../i18n';
+
 function parsePayload(raw) {
   if (!raw) return null;
   if (typeof raw === 'object') return raw;
@@ -616,6 +618,7 @@ function buildHtml({ apiKey }) {
 }
 
 export default function Map3D({ points = [], route = [], apiKey, onMapPress, style }) {
+  const { t } = useI18n();
   const iframeRef = useRef(null);
   const webViewRef = useRef(null);
   const [iframeReady, setIframeReady] = useState(false);
@@ -638,25 +641,25 @@ export default function Map3D({ points = [], route = [], apiKey, onMapPress, sty
       }
 
       if (data.type === 'traffic-ready') {
-        setStatusText('2GIS traffic layer enabled (green/yellow/red).');
+        setStatusText(t('map3d.traffic_ready'));
         return;
       }
 
       if (data.type === 'traffic-score') {
         const score = Number(data.payload);
         if (Number.isFinite(score)) {
-          setStatusText(`2GIS traffic score: ${score}/10 (green/yellow/red on roads).`);
+          setStatusText(t('map3d.traffic_score', { score }));
         }
         return;
       }
 
       if (data.type === 'ready') {
         if (data.payload === 'maplibre') {
-          setStatusText('Fallback map active (MapLibre).');
+          setStatusText(t('map3d.fallback_ready'));
         }
       }
     },
-    [onMapPress]
+    [onMapPress, t]
   );
 
   useEffect(() => {
