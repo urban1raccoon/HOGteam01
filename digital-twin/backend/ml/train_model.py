@@ -8,7 +8,7 @@ For now, this creates a simplified model that can be trained with synthetic data
 In production, replace with real historical traffic data.
 """
 
-import os
+
 from pathlib import Path
 
 
