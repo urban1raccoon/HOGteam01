@@ -105,6 +105,7 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
   const [error, setError] = useState('');
   const [lastAction, setLastAction] = useState(() => t('map.status.waiting_transport'));
   const [showPredictions, setShowPredictions] = useState(true);
+  const [mapTheme, setMapTheme] = useState('dark');
 
   const [origin, setOrigin] = useState(null);
   const [destination, setDestination] = useState(null);
@@ -390,7 +391,14 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
       </View>
 
       <View style={styles.mapWrap}>
-        <Map3D points={mapPoints} route={route} apiKey={DGIS_KEY} onMapPress={onMapPress} style={styles.map} />
+        <Map3D
+          points={mapPoints}
+          route={route}
+          apiKey={DGIS_KEY}
+          theme={mapTheme}
+          onMapPress={onMapPress}
+          style={styles.map}
+        />
       </View>
 
       <View style={styles.mapInfoRow}>
@@ -402,6 +410,11 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
         </Text>
         {loading ? <ActivityIndicator size="small" color="#a78bfa" /> : null}
         {routeBusy ? <ActivityIndicator size="small" color="#22d3ee" /> : null}
+        <ActionButton
+          label={mapTheme === 'dark' ? t('map.theme.light') : t('map.theme.dark')}
+          onPress={() => setMapTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+          small
+        />
         <ActionButton
           label={showPredictions ? t('map.hide_graph') : t('map.show_graph')}
           onPress={() => setShowPredictions((v) => !v)}

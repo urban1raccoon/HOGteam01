@@ -53,8 +53,9 @@ function normalizeRoute(route) {
     .filter(Boolean);
 }
 
-function buildHtml({ apiKey }) {
+function buildHtml({ apiKey, initialTheme }) {
   const safeKey = (apiKey || '').trim();
+  const safeTheme = initialTheme === 'light' ? 'light' : 'dark';
 
   return `<!doctype html>
 <html>
@@ -94,16 +95,24 @@ function buildHtml({ apiKey }) {
 <body>
   <div id="map"></div>
 
-  <script>
-    const POINTS = [];
-    const API_KEY = ${JSON.stringify(safeKey)};
+	  <script>
+	    const POINTS = [];
+	    const API_KEY = ${JSON.stringify(safeKey)};
+	    const MAPLIBRE_STYLE_LIGHT = 'https://demotiles.maplibre.org/style.json';
+	    const MAPLIBRE_STYLE_DARK = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+	    const DGIS_STYLE_LIGHT_ID = 'c080bb6a-8134-4993-93a1-5b4d8c36a59b';
+	    const DGIS_STYLE_DARK_ID = 'e05ac437-fcc2-4845-ad74-b1de9ce07555';
 
     let engine = null;
     let map = null;
-    let markers = [];
-    let routeLine = null;
-    let pendingPoints = null;
-    let pendingRoute = null;
+	    let markers = [];
+	    let routeLine = null;
+	    let pendingPoints = null;
+	    let pendingRoute = null;
+	    let pendingTheme = null;
+	    let currentTheme = ${JSON.stringify(safeTheme)};
+	    let currentPoints = [];
+	    let currentRoute = null;
 
     function sendToHost(payload) {
       const msg = JSON.stringify(payload);
@@ -129,10 +138,10 @@ function buildHtml({ apiKey }) {
       return palette[String(category || '').toLowerCase()] || '#2dd4bf';
     }
 
-    function normalizeRouteCoordinates(incoming) {
-      if (!Array.isArray(incoming)) return [];
-      return incoming
-        .map((point) => {
+	    function normalizeRouteCoordinates(incoming) {
+	      if (!Array.isArray(incoming)) return [];
+	      return incoming
+	        .map((point) => {
           if (Array.isArray(point) && point.length >= 2) {
             const lon = Number(point[0]);
             const lat = Number(point[1]);
@@ -145,13 +154,27 @@ function buildHtml({ apiKey }) {
           if (!Number.isFinite(lon) || !Number.isFinite(lat)) return null;
           return [lon, lat];
         })
-        .filter(Boolean);
-    }
+	        .filter(Boolean);
+	    }
 
-    function clearMarkers() {
-      markers.forEach((marker) => {
-        if (!marker) return;
-        if (engine === '2gis' && typeof marker.destroy === 'function') marker.destroy();
+	    function normalizeTheme(incoming) {
+	      return incoming === 'light' ? 'light' : 'dark';
+	    }
+
+	    function getMapLibreStyle(theme) {
+	      const selected = theme === 'dark' ? MAPLIBRE_STYLE_DARK : MAPLIBRE_STYLE_LIGHT;
+	      return selected || MAPLIBRE_STYLE_LIGHT;
+	    }
+
+	    function get2GISStyle(theme) {
+	      const selected = theme === 'dark' ? DGIS_STYLE_DARK_ID : DGIS_STYLE_LIGHT_ID;
+	      return selected || '';
+	    }
+
+	    function clearMarkers() {
+	      markers.forEach((marker) => {
+	        if (!marker) return;
+	        if (engine === '2gis' && typeof marker.destroy === 'function') marker.destroy();
         if (engine === 'maplibre' && typeof marker.remove === 'function') marker.remove();
       });
       markers = [];
@@ -197,11 +220,12 @@ function buildHtml({ apiKey }) {
       fitBounds(minLng, minLat, maxLng, maxLat);
     }
 
-    function setPoints(points) {
-      if (!map) {
-        pendingPoints = Array.isArray(points) ? points : [];
-        return;
-      }
+	    function setPoints(points) {
+	      currentPoints = Array.isArray(points) ? points : [];
+	      if (!map) {
+	        pendingPoints = currentPoints;
+	        return;
+	      }
 
       clearMarkers();
 
@@ -273,19 +297,21 @@ function buildHtml({ apiKey }) {
       fitBounds(minLng, minLat, maxLng, maxLat);
     }
 
-    function setRoute(incoming) {
-      if (!map) {
-        pendingRoute = incoming;
-        return;
-      }
+	    function setRoute(incoming) {
+	      currentRoute = incoming;
+	      if (!map) {
+	        pendingRoute = incoming;
+	        return;
+	      }
 
       const coordinates = normalizeRouteCoordinates(incoming);
       clearRoute();
 
-      if (coordinates.length < 2) {
-        sendToHost({ type: 'route-cleared' });
-        return;
-      }
+	      if (coordinates.length < 2) {
+	        currentRoute = null;
+	        sendToHost({ type: 'route-cleared' });
+	        return;
+	      }
 
       if (engine === '2gis' && window.mapgl) {
         try {
@@ -332,13 +358,69 @@ function buildHtml({ apiKey }) {
         } catch {
           sendToHost({ type: 'warning', payload: 'Failed to draw route on fallback map.' });
         }
-      }
-    }
+	      }
+	    }
 
-    function enable2GISTraffic() {
-      if (!map || engine !== '2gis') return;
+	    function applyTheme(incoming) {
+	      const theme = normalizeTheme(incoming);
+	      currentTheme = theme;
 
-      try {
+	      if (!map) {
+	        pendingTheme = theme;
+	        return;
+	      }
+
+	      if (engine === '2gis') {
+	        const styleId = get2GISStyle(theme);
+	        if (!styleId || typeof map.setStyleById !== 'function') return;
+
+	        map
+	          .setStyleById(styleId)
+	          .then(() => {
+	            enable2GISTraffic();
+	            if (currentPoints && currentPoints.length) setPoints(currentPoints);
+	            if (currentRoute) setRoute(currentRoute);
+	          })
+	          .catch(() => {
+	            sendToHost({ type: 'warning', payload: 'Failed to switch 2GIS map style.' });
+	          });
+	        return;
+	      }
+
+	      if (engine === 'maplibre') {
+	        const styleUrl = getMapLibreStyle(theme);
+	        if (!styleUrl || typeof map.setStyle !== 'function') return;
+
+	        try {
+	          map.setStyle(styleUrl);
+	        } catch {
+	          sendToHost({ type: 'warning', payload: 'Failed to switch fallback map style.' });
+	          return;
+	        }
+
+	        let attempts = 0;
+	        const tryReapply = () => {
+	          attempts += 1;
+	          if (!map || engine !== 'maplibre') return;
+
+	          const ready = typeof map.isStyleLoaded === 'function' ? map.isStyleLoaded() : true;
+	          if (!ready && attempts < 30) {
+	            setTimeout(tryReapply, 100);
+	            return;
+	          }
+
+	          add3DBuildings();
+	          if (currentRoute) setRoute(currentRoute);
+	        };
+
+	        setTimeout(tryReapply, 0);
+	      }
+	    }
+
+	    function enable2GISTraffic() {
+	      if (!map || engine !== '2gis') return;
+
+	      try {
         if (typeof map.showTraffic === 'function') {
           map.showTraffic();
         }
@@ -425,25 +507,31 @@ function buildHtml({ apiKey }) {
           setRoute(message.payload);
         }
 
-        if (message && message.type === 'clear-route') {
-          clearRoute();
-          sendToHost({ type: 'route-cleared' });
-        }
-      });
-    }
+		        if (message && message.type === 'clear-route') {
+		          clearRoute();
+		          currentRoute = null;
+		          pendingRoute = null;
+		          sendToHost({ type: 'route-cleared' });
+		        }
+
+	        if (message && message.type === 'set-theme') {
+	          applyTheme(message.payload);
+	        }
+	      });
+	    }
 
     function initMapLibre() {
       function startMapLibre() {
         if (map) return;
 
-        engine = 'maplibre';
-        map = new window.maplibregl.Map({
-          container: 'map',
-          style: 'https://demotiles.maplibre.org/style.json',
-          center: [82.61, 49.95],
-          zoom: 13,
-          pitch: 60,
-          bearing: -17,
+	        engine = 'maplibre';
+	        map = new window.maplibregl.Map({
+	          container: 'map',
+	          style: getMapLibreStyle(pendingTheme || currentTheme),
+	          center: [82.61, 49.95],
+	          zoom: 13,
+	          pitch: 60,
+	          bearing: -17,
           antialias: true,
         });
 
@@ -451,16 +539,20 @@ function buildHtml({ apiKey }) {
           map.addControl(new window.maplibregl.NavigationControl(), 'top-right');
         }
 
-        map.on('load', () => {
-          add3DBuildings();
-          setPoints(pendingPoints || POINTS);
-          pendingPoints = null;
-          if (pendingRoute) {
-            setRoute(pendingRoute);
-            pendingRoute = null;
-          }
-          sendToHost({ type: 'ready', payload: 'maplibre' });
-        });
+	        map.on('load', () => {
+	          add3DBuildings();
+	          setPoints(pendingPoints || POINTS);
+	          pendingPoints = null;
+	          if (pendingRoute) {
+	            setRoute(pendingRoute);
+	            pendingRoute = null;
+	          }
+	          if (pendingTheme) {
+	            currentTheme = pendingTheme;
+	            pendingTheme = null;
+	          }
+	          sendToHost({ type: 'ready', payload: 'maplibre' });
+	        });
 
         map.on('click', (e) => {
           if (!e || !e.lngLat) return;
@@ -526,15 +618,17 @@ function buildHtml({ apiKey }) {
 
         try {
           engine = '2gis';
-          map = new window.mapgl.Map('map', {
-            center: [82.61, 49.95],
-            zoom: 13,
-            key: API_KEY,
-            pitch: 60,
-            rotation: -17,
-            trafficOn: true,
-            trafficControl: 'topRight',
-          });
+	          map = new window.mapgl.Map('map', {
+	            center: [82.61, 49.95],
+	            zoom: 13,
+	            key: API_KEY,
+	            style: get2GISStyle(pendingTheme || currentTheme),
+	            styleZoom: 13,
+	            pitch: 60,
+	            rotation: -17,
+	            trafficOn: true,
+	            trafficControl: 'topRight',
+	          });
 
           if (typeof map.setPitch === 'function') map.setPitch(60);
           if (typeof map.setRotation === 'function') map.setRotation(-17);
@@ -568,15 +662,19 @@ function buildHtml({ apiKey }) {
             });
           });
 
-          enable2GISTraffic();
-          setPoints(pendingPoints || POINTS);
-          pendingPoints = null;
-          if (pendingRoute) {
-            setRoute(pendingRoute);
-            pendingRoute = null;
-          }
-          sendToHost({ type: 'ready', payload: '2gis' });
-        } catch {
+	          enable2GISTraffic();
+	          setPoints(pendingPoints || POINTS);
+	          pendingPoints = null;
+	          if (pendingRoute) {
+	            setRoute(pendingRoute);
+	            pendingRoute = null;
+	          }
+	          if (pendingTheme) {
+	            applyTheme(pendingTheme);
+	            pendingTheme = null;
+	          }
+	          sendToHost({ type: 'ready', payload: '2gis' });
+	        } catch {
           sendToHost({
             type: 'warning',
             payload: '2GIS key is invalid. Switched to fallback map.',
@@ -601,14 +699,20 @@ function buildHtml({ apiKey }) {
       setPoints(Array.isArray(incoming) ? incoming : []);
     };
 
-    window.__setRoute = (incoming) => {
-      setRoute(incoming);
-    };
+	    window.__setRoute = (incoming) => {
+	      setRoute(incoming);
+	    };
 
-    window.__clearRoute = () => {
-      clearRoute();
-      sendToHost({ type: 'route-cleared' });
-    };
+	    window.__setTheme = (incoming) => {
+	      applyTheme(incoming);
+	    };
+
+	    window.__clearRoute = () => {
+	      clearRoute();
+	      currentRoute = null;
+	      pendingRoute = null;
+	      sendToHost({ type: 'route-cleared' });
+	    };
 
     attachSharedMessageListener();
     init2GIS();
@@ -617,14 +721,18 @@ function buildHtml({ apiKey }) {
 </html>`;
 }
 
-export default function Map3D({ points = [], route = [], apiKey, onMapPress, style }) {
+export default function Map3D({ points = [], route = [], theme = 'dark', apiKey, onMapPress, style }) {
   const { t } = useI18n();
   const iframeRef = useRef(null);
   const webViewRef = useRef(null);
+  const initialThemeRef = useRef(theme === 'light' ? 'light' : 'dark');
   const [iframeReady, setIframeReady] = useState(false);
   const [statusText, setStatusText] = useState('');
 
-  const html = useMemo(() => buildHtml({ apiKey }), [apiKey]);
+  const html = useMemo(
+    () => buildHtml({ apiKey, initialTheme: initialThemeRef.current }),
+    [apiKey]
+  );
 
   const handleBridgeMessage = useCallback(
     (data) => {
@@ -722,6 +830,27 @@ export default function Map3D({ points = [], route = [], apiKey, onMapPress, sty
 
     webViewRef.current.injectJavaScript(js);
   }, [route, iframeReady]);
+
+  useEffect(() => {
+    const normalizedTheme = theme === 'light' ? 'light' : 'dark';
+
+    if (Platform.OS === 'web') {
+      if (!iframeRef.current || !iframeReady) return;
+      iframeRef.current.contentWindow?.postMessage(
+        { type: 'set-theme', payload: normalizedTheme },
+        '*'
+      );
+      return;
+    }
+
+    if (!webViewRef.current) return;
+
+    const js = `
+      window.__setTheme && window.__setTheme(${JSON.stringify(normalizedTheme)});
+      true;
+    `;
+    webViewRef.current.injectJavaScript(js);
+  }, [theme, iframeReady]);
 
   return (
     <View style={[styles.container, style]}>
