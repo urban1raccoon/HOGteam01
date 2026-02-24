@@ -157,29 +157,36 @@ def _extract_geometry(route_data: Dict[str, Any]) -> List[List[float]]:
     return []
 
 
+_CONGESTION_SCORES: Dict[str, float] = {
+    "low": 2.0,
+    "moderate": 5.0,
+    "heavy": 7.5,
+    "severe": 9.0,
+}
+
+
 def _extract_traffic_score(route_data: Dict[str, Any]) -> float:
     """
     Extract traffic score from route data.
     Returns value from 0-10 scale (0=no traffic, 10=severe congestion).
 
-    Compares duration (with traffic) vs duration_typical (free-flow) when available,
-    otherwise estimates based on speed ratio.
+    Uses per-segment congestion annotations when available (average across
+    all segments), otherwise falls back to a duration/distance heuristic.
     """
-    duration_s = route_data.get("duration", 0)
-    duration_typical = route_data.get("duration_typical")
+    # Try annotation.congestion from legs
+    congestion_values: List[float] = []
+    for leg in route_data.get("legs", []):
+        annotation = leg.get("annotation", {})
+        for label in annotation.get("congestion", []):
+            score = _CONGESTION_SCORES.get(label)
+            if score is not None:
+                congestion_values.append(score)
 
-    if duration_typical and duration_typical > 0:
-        ratio = duration_s / duration_typical
-        if ratio < 1.1:
-            return 2.0
-        elif ratio < 1.3:
-            return 5.0
-        elif ratio < 1.6:
-            return 7.5
-        else:
-            return 9.0
+    if congestion_values:
+        return round(sum(congestion_values) / len(congestion_values), 1)
 
     # Fallback: estimate based on duration vs distance ratio
+    duration_s = route_data.get("duration", 0)
     distance_km = route_data.get("distance", 1000) / 1000.0
     duration_min = duration_s / 60.0
 
