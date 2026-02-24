@@ -1,10 +1,6 @@
 """
-Route Optimization API Router
+Route Optimization API 
 
-Provides intelligent route optimization using:
-- Mapbox Directions API for route alternatives
-- GRU ML model for traffic prediction
-- Grok AI for route recommendation
 """
 
 import json
@@ -29,7 +25,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 # Initialize ML predictor once at startup
-# Uses fallback if model files not available
+# fallback if model files not available
 predictor = TrafficPredictor()
 
 # Route optimization system prompt for Grok
@@ -61,11 +57,11 @@ def optimize_route(payload: RouteOptimizationRequest):
     Raises:
         HTTPException: 400 for invalid coordinates, 503 for routing service unavailable
     """
-    # Step 1: Validate coordinates
+    # alidate coordinates
     _validate_coordinates(payload.origin, "origin")
     _validate_coordinates(payload.destination, "destination")
 
-    # Step 2: Fetch routes from Mapbox
+    # Fetch routes from mapbox
     access_token = os.getenv("MAPBOX_ACCESS_TOKEN", "")
     logger.info(
         f"Fetching routes from {payload.origin} to {payload.destination}"
@@ -84,7 +80,7 @@ def optimize_route(payload: RouteOptimizationRequest):
             detail="Routing service unavailable. Please try again later.",
         )
 
-    # Step 3: Predict traffic for each route
+    # Predict traffic for each route
     now = datetime.now()
     routes_with_predictions = []
 
@@ -130,13 +126,13 @@ def optimize_route(payload: RouteOptimizationRequest):
 
         routes_with_predictions.append(route_detail)
 
-    # Step 4: Get AI recommendation from Grok
+    #  Get AI recommendation from Grok
     ai_recommendation = None
     recommended_idx = 0  # Default to first route
 
     if payload.use_ai_recommendation:
         try:
-            # Prepare context for Grok
+            # Prepare context for ai
             routes_context = [
                 {
                     "route_id": r.route_id,
@@ -158,7 +154,7 @@ def optimize_route(payload: RouteOptimizationRequest):
                 "transport_mode": payload.transport_mode,
             }
 
-            # Call Grok AI
+            # Call ai
             grok_prompt = (
                 f"Какой маршрут выбрать из точки {payload.origin} "
                 f"до точки {payload.destination} в {now.hour}:{now.minute:02d}?"
@@ -176,19 +172,7 @@ def optimize_route(payload: RouteOptimizationRequest):
             logger.warning(f"AI recommendation failed: {exc}")
             # Continue without AI recommendation
 
-    # Step 5: Return response
-    return RouteOptimizationResponse(
-        routes=routes_with_predictions,
-        ai_recommendation=ai_recommendation,
-        recommended_route_index=recommended_idx,
-        metadata={
-            "request_time": now.isoformat(),
-            "num_routes": len(routes_with_predictions),
-            "ai_used": payload.use_ai_recommendation and ai_recommendation is not None,
-            "ml_used": payload.include_traffic_prediction,
-            "ml_fallback": predictor.using_fallback,
-        },
-    )
+    
 
 
 def _validate_coordinates(coords: tuple, name: str):
