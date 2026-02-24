@@ -172,7 +172,19 @@ def optimize_route(payload: RouteOptimizationRequest):
             logger.warning(f"AI recommendation failed: {exc}")
             # Continue without AI recommendation
 
-    
+    # response
+    return RouteOptimizationResponse(
+        routes=routes_with_predictions,
+        ai_recommendation=ai_recommendation,
+        recommended_route_index=recommended_idx,
+        metadata={
+            "request_time": now.isoformat(),
+            "num_routes": len(routes_with_predictions),
+            "ai_used": payload.use_ai_recommendation and ai_recommendation is not None,
+            "ml_used": payload.include_traffic_prediction,
+            "ml_fallback": predictor.using_fallback,
+        },
+    )
 
 
 def _validate_coordinates(coords: tuple, name: str):
