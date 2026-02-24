@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-# SQLite database 
+# SQLite database in the backend directory
 DB_PATH = Path(__file__).parent / "app.db"
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
 

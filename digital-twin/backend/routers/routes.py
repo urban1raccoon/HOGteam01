@@ -1,4 +1,11 @@
+"""
+Route Optimization API Router
 
+Provides intelligent route optimization using:
+- 2GIS Routing API for route alternatives
+- GRU ML model for traffic prediction
+- Grok AI for route recommendation
+"""
 
 import json
 import logging
