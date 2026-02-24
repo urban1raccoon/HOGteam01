@@ -2,7 +2,7 @@
 Route Optimization API Router
 
 Provides intelligent route optimization using:
-- 2GIS Routing API for route alternatives
+- Mapbox Directions API for route alternatives
 - GRU ML model for traffic prediction
 - Grok AI for route recommendation
 """
@@ -47,7 +47,7 @@ def optimize_route(payload: RouteOptimizationRequest):
     Optimize route from origin to destination using AI and ML predictions.
 
     This endpoint:
-    1. Fetches route alternatives from 2GIS API
+    1. Fetches route alternatives from Mapbox API
     2. Predicts traffic for each route using GRU model
     3. Sends data to Grok AI for recommendation
     4. Returns routes with predictions and AI recommendation
@@ -65,8 +65,8 @@ def optimize_route(payload: RouteOptimizationRequest):
     _validate_coordinates(payload.origin, "origin")
     _validate_coordinates(payload.destination, "destination")
 
-    # Step 2: Fetch routes from 2GIS
-    api_key = os.getenv("DGIS_API_KEY", "")
+    # Step 2: Fetch routes from Mapbox
+    access_token = os.getenv("MAPBOX_ACCESS_TOKEN", "")
     logger.info(
         f"Fetching routes from {payload.origin} to {payload.destination}"
     )
@@ -74,7 +74,7 @@ def optimize_route(payload: RouteOptimizationRequest):
     raw_routes = fetch_route_alternatives(
         origin=payload.origin,
         destination=payload.destination,
-        api_key=api_key,
+        access_token=access_token,
         num_alternatives=2,
     )
 
