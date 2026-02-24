@@ -51,6 +51,7 @@ def fetch_route_alternatives(
         "alternatives": "true" if num_alternatives > 1 else "false",
         "geometries": "geojson",
         "overview": "full",
+        "annotations": "congestion,duration,distance",
         "steps": "true",
         "language": "en",
     })
