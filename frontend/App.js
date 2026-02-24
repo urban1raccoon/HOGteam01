@@ -14,6 +14,8 @@ import { useState } from 'react';
 
 import api from './src/api';
 import MainMap from './src/screens/MainMap';
+import LanguageSelector from './src/components/LanguageSelector';
+import { I18nProvider, useI18n } from './src/i18n';
 
 const theme = {
   bg: '#070313',
@@ -33,10 +35,19 @@ function parseError(error) {
   if (Array.isArray(detail)) {
     return detail.map((d) => d?.msg || JSON.stringify(d)).join('; ');
   }
-  return detail || error?.message || 'Request failed';
+  return detail || error?.message;
 }
 
 export default function App() {
+  return (
+    <I18nProvider initialLang="ru">
+      <AppInner />
+    </I18nProvider>
+  );
+}
+
+function AppInner() {
+  const { t } = useI18n();
   const [mode, setMode] = useState('register');
   const [form, setForm] = useState({
     username: '',
@@ -63,7 +74,7 @@ export default function App() {
 
   const enterGuestMode = () => {
     setGuestMode(true);
-    setSuccess('Guest mode enabled. Auth-only endpoints may be unavailable.');
+    setSuccess(t('auth.guest_mode_enabled'));
     setError('');
   };
 
@@ -71,7 +82,7 @@ export default function App() {
     resetMessages();
 
     if (mode === 'register' && form.password !== form.confirmPassword) {
-      setError('Passwords do not match');
+      setError(t('auth.passwords_do_not_match'));
       return;
     }
 
@@ -86,7 +97,8 @@ export default function App() {
           confirmPassword: form.confirmPassword,
         });
 
-        setSuccess(`User ${response.data?.username || 'created'} created. Please sign in.`);
+        const username = response.data?.username || t('common.user');
+        setSuccess(t('auth.user_created', { username }));
         setMode('login');
         setForm((prev) => ({
           ...prev,
@@ -101,14 +113,16 @@ export default function App() {
         });
 
         const nextToken = response.data?.access_token || '';
-        if (!nextToken) throw new Error('Token was not returned by backend');
+        if (!nextToken) throw new Error(t('auth.token_missing'));
 
         setToken(nextToken);
         setGuestMode(false);
-        setSuccess(`Welcome, ${response.data?.user?.username || 'user'}`);
+        setSuccess(
+          t('auth.welcome', { username: response.data?.user?.username || t('common.user') })
+        );
       }
     } catch (e) {
-      setError(parseError(e));
+      setError(parseError(e) || t('common.request_failed'));
     } finally {
       setLoading(false);
     }
@@ -139,7 +153,7 @@ export default function App() {
       <View style={styles.bgDecorBottom} />
 
       <Pressable style={styles.skipSideButton} onPress={enterGuestMode}>
-        <Text style={styles.skipSideText}>Skip auth</Text>
+        <Text style={styles.skipSideText}>{t('auth.skip_auth')}</Text>
       </Pressable>
 
       <KeyboardAvoidingView
@@ -148,37 +162,42 @@ export default function App() {
       >
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <View style={styles.card}>
-            <Text style={styles.kicker}>HOG MAPS</Text>
-            <Text style={styles.title}>{mode === 'register' ? 'Create account' : 'Sign in'}</Text>
-            <Text style={styles.subtitle}>Dark mode control center opens after login.</Text>
+            <View style={styles.cardTopRow}>
+              <Text style={styles.kicker}>{t('app.title')}</Text>
+              <LanguageSelector compact />
+            </View>
+            <Text style={styles.title}>
+              {mode === 'register' ? t('auth.create_account') : t('auth.sign_in')}
+            </Text>
+            {t('auth.subtitle') ? <Text style={styles.subtitle}>{t('auth.subtitle')}</Text> : null}
 
             {mode === 'register' ? (
               <>
                 <FormField
-                  label="Nickname"
-                  placeholder="your name"
+                  label={t('auth.nickname')}
+                  placeholder={t('auth.placeholder.nickname')}
                   value={form.username}
                   onChangeText={(v) => onChange('username', v)}
                   autoCapitalize="none"
                 />
                 <FormField
-                  label="Email"
-                  placeholder="yourmail@example.com"
+                  label={t('auth.email')}
+                  placeholder={t('auth.placeholder.email')}
                   value={form.email}
                   onChangeText={(v) => onChange('email', v)}
                   autoCapitalize="none"
                   keyboardType="email-address"
                 />
                 <FormField
-                  label="Password"
-                  placeholder="At least 8 characters"
+                  label={t('auth.password')}
+                  placeholder={t('auth.placeholder.password')}
                   value={form.password}
                   onChangeText={(v) => onChange('password', v)}
                   secureTextEntry
                 />
                 <FormField
-                  label="Confirm password"
-                  placeholder="Repeat password"
+                  label={t('auth.confirm_password')}
+                  placeholder={t('auth.placeholder.confirm_password')}
                   value={form.confirmPassword}
                   onChangeText={(v) => onChange('confirmPassword', v)}
                   secureTextEntry
@@ -187,15 +206,15 @@ export default function App() {
             ) : (
               <>
                 <FormField
-                  label="Login"
-                  placeholder="username or email"
+                  label={t('auth.login')}
+                  placeholder={t('auth.placeholder.login')}
                   value={form.login}
                   onChangeText={(v) => onChange('login', v)}
                   autoCapitalize="none"
                 />
                 <FormField
-                  label="Password"
-                  placeholder="Your password"
+                  label={t('auth.password')}
+                  placeholder={t('auth.placeholder.password_login')}
                   value={form.password}
                   onChangeText={(v) => onChange('password', v)}
                   secureTextEntry
@@ -215,7 +234,11 @@ export default function App() {
               ]}
             >
               <Text style={styles.submitButtonText}>
-                {loading ? 'Please wait...' : mode === 'register' ? 'Sign up' : 'Sign in'}
+                {loading
+                  ? t('auth.please_wait')
+                  : mode === 'register'
+                    ? t('auth.sign_up_button')
+                    : t('auth.sign_in_button')}
               </Text>
             </Pressable>
 
@@ -226,8 +249,10 @@ export default function App() {
               }}
             >
               <Text style={styles.footerText}>
-                {mode === 'register' ? 'Already have an account? ' : 'No account yet? '}
-                <Text style={styles.linkText}>{mode === 'register' ? 'Sign in' : 'Create one'}</Text>
+                {mode === 'register' ? t('auth.already_have_account') : t('auth.no_account_yet')}
+                <Text style={styles.linkText}>
+                  {mode === 'register' ? t('auth.sign_in') : t('auth.create_one_link')}
+                </Text>
               </Text>
             </Pressable>
           </View>
@@ -310,8 +335,15 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 1.2,
-    marginBottom: 8,
+    marginBottom: 0,
     textTransform: 'uppercase',
+  },
+  cardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 8,
   },
   title: {
     color: theme.textPrimary,
