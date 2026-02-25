@@ -3,6 +3,7 @@ Pydantic models for route optimization API.
 """
 
 from typing import Any, Dict, List, Optional, Tuple
+
 from pydantic import BaseModel, Field
 
 
@@ -21,7 +22,7 @@ class RouteOptimizationRequest(BaseModel):
     )
     transport_mode: str = Field(
         default="driving",
-        description="Transport mode (driving, walking, public_transport)",
+        description="Transport mode (driving, walking, cycling)",
     )
     include_traffic_prediction: bool = Field(
         default=True,
@@ -104,6 +105,65 @@ class RouteOptimizationResponse(BaseModel):
         default_factory=dict,
         description="Additional metadata about the optimization",
     )
+
+    class Config:
+        from_attributes = True
+
+
+class MultiModalRouteRequest(BaseModel):
+    """Request for selecting the best transport mode between two points."""
+
+    origin: Tuple[float, float] = Field(
+        ...,
+        description="Origin coordinates [longitude, latitude]",
+        example=[82.61, 49.95],
+    )
+    destination: Tuple[float, float] = Field(
+        ...,
+        description="Destination coordinates [longitude, latitude]",
+        example=[82.70, 50.05],
+    )
+    modes: List[str] = Field(
+        default_factory=lambda: ["driving", "walking", "cycling"],
+        description="Requested transport modes",
+    )
+    include_traffic_prediction: bool = Field(
+        default=True,
+        description="Whether to include ML traffic predictions",
+    )
+
+    class Config:
+        from_attributes = True
+
+
+class MultiModalRouteOption(BaseModel):
+    """Candidate transport mode with routing metrics."""
+
+    mode: str = Field(..., description="Transport mode")
+    label: str = Field(..., description="Display label for mode")
+    distance_km: float = Field(..., description="Distance in kilometers")
+    duration_minutes: float = Field(..., description="Base duration in minutes")
+    duration_with_traffic_minutes: float = Field(..., description="Duration with traffic impact")
+    traffic_score: float = Field(..., description="Traffic score 0..10")
+    predicted_level: str = Field(..., description="Predicted traffic level")
+    estimated_delay_minutes: float = Field(..., description="Estimated delay for this mode")
+    recommendation_score: float = Field(..., description="Composite ranking score")
+    summary: str = Field(..., description="Human summary")
+    geometry: List[List[float]] = Field(
+        default_factory=list,
+        description="Route geometry",
+    )
+
+    class Config:
+        from_attributes = True
+
+
+class MultiModalRouteResponse(BaseModel):
+    """Response with ranked mode options."""
+
+    options: List[MultiModalRouteOption] = Field(default_factory=list)
+    recommended_mode: str = Field(default="driving")
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
     class Config:
         from_attributes = True
