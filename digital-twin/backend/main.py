@@ -21,7 +21,7 @@ from models.models import (
     UserRegisterRequest,
     UserRegisterResponse,
 )
-from routers import ai, routes
+from routers import ai, geo, routes
 
 app = FastAPI(title="HOG maps Backend api")
 
@@ -34,8 +34,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(ai.router, prefix="/api/ai", tags=["AI"])
+app.include_router(ai.router, prefix="/api/ai", tags=["AI"])npx
 app.include_router(routes.router, prefix="/api/routes", tags=["Routes"])
+app.include_router(geo.router, prefix="/api/geo", tags=["Geo"])
 
 TOKEN_TTL_SECONDS = 60 * 60 * 24
 AUTH_SECRET = os.getenv("AUTH_SECRET", "change-me-in-production")

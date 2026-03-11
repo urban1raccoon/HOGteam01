@@ -19,9 +19,23 @@ import Map3D from '../components/Map3D';
 import LanguageSelector from '../components/LanguageSelector';
 import { useI18n } from '../i18n';
 
-const DGIS_KEY = process.env.EXPO_PUBLIC_DGIS_KEY || '0dd55685-621b-43a8-bac3-b1d8ca27d3da';
+const MAPBOX_ACCESS_TOKEN = process.env.EXPO_PUBLIC_MAPBOX_ACCESS_TOKEN || '';
+const MAPBOX_STYLE_LIGHT =
+  process.env.EXPO_PUBLIC_MAPBOX_STYLE_LIGHT || 'mapbox://styles/mapbox/light-v11';
+const MAPBOX_STYLE_DARK =
+  process.env.EXPO_PUBLIC_MAPBOX_STYLE_DARK || 'mapbox://styles/mapbox/dark-v11';
 const chartWidth = Math.max(320, Dimensions.get('window').width - 56);
 const graphLabels = ['T1', 'T2', 'T3', 'T4', 'T5', 'T6'];
+
+const BUILDING_TYPES = ['residential', 'office', 'school', 'hospital', 'park'];
+
+const BUILDING_EFFECTS = {
+  residential: { flow: 18, detour: 1.4, ecology: -0.7, social: 0.2, traffic: 0.9 },
+  office: { flow: 14, detour: 1.1, ecology: -0.4, social: 0.4, traffic: 0.8 },
+  school: { flow: 4, detour: 0.2, ecology: 0.1, social: 1.4, traffic: 0.2 },
+  hospital: { flow: 6, detour: 0.3, ecology: -0.1, social: 1.2, traffic: 0.3 },
+  park: { flow: -3, detour: -0.2, ecology: 1.2, social: 0.8, traffic: -0.3 },
+};
 
 function parseError(error, fallback = 'Request failed') {
   const detail = error?.response?.data?.detail;
@@ -38,6 +52,10 @@ function clamp(value, min, max) {
 function toNumber(value, fallback = 0) {
   const next = Number(value);
   return Number.isFinite(next) ? next : fallback;
+}
+
+function round1(value) {
+  return Number(toNumber(value, 0).toFixed(1));
 }
 
 function buildChartData(overview) {
@@ -63,6 +81,86 @@ function buildChartData(overview) {
   return { labels: graphLabels, traffic, ecology, social };
 }
 
+function buildCityImpact(buildings) {
+  const impact = {
+    total: 0,
+    counts: {},
+    flow: 0,
+    detour: 0,
+    ecology: 0,
+    social: 0,
+    traffic: 0,
+  };
+
+  if (!Array.isArray(buildings) || !buildings.length) return impact;
+
+  buildings.forEach((item) => {
+    const type = String(item?.type || '').toLowerCase();
+    const next = BUILDING_EFFECTS[type];
+    if (!next) return;
+
+    impact.total += 1;
+    impact.counts[type] = (impact.counts[type] || 0) + 1;
+    impact.flow += next.flow;
+    impact.detour += next.detour;
+    impact.ecology += next.ecology;
+    impact.social += next.social;
+    impact.traffic += next.traffic;
+  });
+
+  impact.flow = Math.round(impact.flow);
+  impact.detour = round1(impact.detour);
+  impact.ecology = round1(impact.ecology);
+  impact.social = round1(impact.social);
+  impact.traffic = round1(impact.traffic);
+
+  return impact;
+}
+
+function deriveCongestionLevel(trafficLoad) {
+  if (trafficLoad >= 80) return 'severe';
+  if (trafficLoad >= 60) return 'high';
+  if (trafficLoad >= 40) return 'medium';
+  return 'low';
+}
+
+function applyImpactToOverview(overview, impact) {
+  if (!overview) return null;
+
+  const baseFlow = toNumber(overview?.base_flow_vehicles_per_hour, 0);
+  const baseDetour = toNumber(overview?.detour_increase_percent, 0);
+  const baseEcology = toNumber(overview?.city_metrics?.ecology, 0);
+  const baseSocial = toNumber(overview?.city_metrics?.social_score, 0);
+  const baseTrafficLoad = toNumber(overview?.city_metrics?.traffic_load, 0);
+
+  const flow = Math.max(0, Math.round(baseFlow + toNumber(impact?.flow, 0)));
+  const detour = Math.max(0, round1(baseDetour + toNumber(impact?.detour, 0)));
+  const ecology = Math.round(clamp(baseEcology + toNumber(impact?.ecology, 0), 0, 100));
+  const social = Math.round(clamp(baseSocial + toNumber(impact?.social, 0), 0, 100));
+  const trafficLoad = Math.round(clamp(baseTrafficLoad + toNumber(impact?.traffic, 0), 0, 100));
+
+  return {
+    ...overview,
+    base_flow_vehicles_per_hour: flow,
+    detour_increase_percent: detour,
+    congestion_level: deriveCongestionLevel(trafficLoad),
+    city_metrics: {
+      ...(overview.city_metrics || {}),
+      ecology,
+      social_score: social,
+      traffic_load: trafficLoad,
+    },
+  };
+}
+
+function markerCategoryByBuilding(type) {
+  if (type === 'school') return 'education';
+  if (type === 'hospital') return 'medical';
+  if (type === 'park') return 'park';
+  if (type === 'office') return 'commercial';
+  return 'general';
+}
+
 function SectionCard({ title, children }) {
   return (
     <View style={styles.sectionCard}>
@@ -72,13 +170,14 @@ function SectionCard({ title, children }) {
   );
 }
 
-function ActionButton({ label, onPress, danger, disabled, small }) {
+function ActionButton({ label, onPress, danger, disabled, small, active }) {
   return (
     <Pressable
       style={({ pressed }) => [
         styles.actionButton,
         small && styles.actionButtonSmall,
         danger && styles.actionButtonDanger,
+        active && styles.actionButtonActive,
         disabled && styles.actionButtonDisabled,
         pressed && !disabled && styles.actionButtonPressed,
       ]}
@@ -106,6 +205,7 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
   const [lastAction, setLastAction] = useState(() => t('map.status.waiting_transport'));
   const [showPredictions, setShowPredictions] = useState(true);
   const [mapTheme, setMapTheme] = useState('dark');
+  const [terrainEnabled, setTerrainEnabled] = useState(true);
 
   const [origin, setOrigin] = useState(null);
   const [destination, setDestination] = useState(null);
@@ -113,9 +213,18 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
   const [routeInfo, setRouteInfo] = useState(null);
   const [routeBusy, setRouteBusy] = useState(false);
   const [routeError, setRouteError] = useState('');
+  const [lastMapTap, setLastMapTap] = useState(null);
+
+  const [modeOptions, setModeOptions] = useState([]);
+  const [modesBusy, setModesBusy] = useState(false);
+  const [recommendedMode, setRecommendedMode] = useState('');
+  const [selectedMode, setSelectedMode] = useState('');
+
+  const [buildMode, setBuildMode] = useState(false);
+  const [buildingType, setBuildingType] = useState('residential');
+  const [buildings, setBuildings] = useState([]);
 
   const [transportOverview, setTransportOverview] = useState(null);
-  const [chartData, setChartData] = useState(() => buildChartData(null));
 
   const [aiOpen, setAiOpen] = useState(false);
   const [aiInput, setAiInput] = useState('');
@@ -132,6 +241,25 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
     return { Authorization: `Bearer ${token}` };
   }, [token]);
 
+  const cityImpact = useMemo(() => buildCityImpact(buildings), [buildings]);
+
+  const effectiveOverview = useMemo(
+    () => applyImpactToOverview(transportOverview, cityImpact),
+    [transportOverview, cityImpact]
+  );
+
+  const chartData = useMemo(() => buildChartData(effectiveOverview), [effectiveOverview]);
+
+  const buildingMix = useMemo(() => {
+    return BUILDING_TYPES.map((type) => {
+      const count = cityImpact.counts[type] || 0;
+      if (!count) return null;
+      return `${t(`map.building.${type}`)}: ${count}`;
+    })
+      .filter(Boolean)
+      .join(' | ');
+  }, [cityImpact.counts, t]);
+
   const loadTransportOverview = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -139,7 +267,6 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
       const response = await api.get('/api/simulation/transport/overview', { headers: authHeaders });
       const next = response.data || {};
       setTransportOverview(next);
-      setChartData(buildChartData(next));
       setLastAction(t('map.status.change_graph_updated'));
       return next;
     } catch (e) {
@@ -161,6 +288,10 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
     setDestination(null);
     setRoute([]);
     setRouteInfo(null);
+    setModeOptions([]);
+    setSelectedMode('');
+    setRecommendedMode('');
+    setLastMapTap(null);
     setRouteError('');
     setLastAction(t('map.status.tap_to_set_a'));
   }, [t]);
@@ -186,6 +317,12 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
       }
 
       setOrigin({ latitude, longitude, source: 'gps' });
+      setDestination(null);
+      setRoute([]);
+      setRouteInfo(null);
+      setModeOptions([]);
+      setSelectedMode('');
+      setRecommendedMode('');
       setLastAction(t('map.status.gps_a_set_tap_b'));
     } catch (e) {
       setLastAction(t('map.status.location_lookup_failed'));
@@ -198,9 +335,10 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
   }, [requestGpsOrigin]);
 
   const buildRoute = useCallback(
-    async (from, to) => {
+    async (from, to, mode) => {
       if (!from || !to) return;
 
+      const normalizedMode = mode || 'driving';
       setRouteBusy(true);
       setRouteError('');
 
@@ -210,8 +348,8 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
           {
             origin: [from.longitude, from.latitude],
             destination: [to.longitude, to.latitude],
-            transport_mode: 'driving',
-            include_traffic_prediction: false,
+            transport_mode: normalizedMode,
+            include_traffic_prediction: true,
             use_ai_recommendation: false,
           },
           { headers: authHeaders }
@@ -227,6 +365,7 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
 
         setRoute(geometry);
         setRouteInfo(selected);
+        setSelectedMode(normalizedMode);
         setLastAction(
           selected?.summary
             ? t('map.status.route_ready_summary', { summary: selected.summary })
@@ -244,29 +383,126 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
     [authHeaders, t]
   );
 
+  const requestModeOptions = useCallback(
+    async (from, to) => {
+      if (!from || !to) return;
+
+      setModesBusy(true);
+      setRouteError('');
+
+      try {
+        const response = await api.post(
+          '/api/routes/modes',
+          {
+            origin: [from.longitude, from.latitude],
+            destination: [to.longitude, to.latitude],
+            modes: ['driving', 'walking', 'cycling'],
+            include_traffic_prediction: true,
+          },
+          { headers: authHeaders }
+        );
+
+        const payload = response.data || {};
+        const options = Array.isArray(payload.options) ? payload.options : [];
+        const best = payload.recommended_mode || options[0]?.mode || 'driving';
+
+        setModeOptions(options);
+        setRecommendedMode(best);
+        setSelectedMode(best);
+        setLastAction(t('map.status.recommended_mode', { mode: t(`map.mode.${best}`) }));
+
+        await buildRoute(from, to, best);
+      } catch (e) {
+        setModeOptions([]);
+        setRecommendedMode('');
+        setSelectedMode('');
+        setRoute([]);
+        setRouteInfo(null);
+        setRouteError(parseError(e, t('common.request_failed')));
+        setLastAction(t('map.status.mode_pick_failed'));
+      } finally {
+        setModesBusy(false);
+      }
+    },
+    [authHeaders, buildRoute, t]
+  );
+
+  const onModeSelect = useCallback(
+    (mode) => {
+      if (!origin || !destination || !mode) return;
+      setSelectedMode(mode);
+      buildRoute(origin, destination, mode).catch(() => null);
+    },
+    [origin, destination, buildRoute]
+  );
+
+  const addBuilding = useCallback(
+    (coords) => {
+      const latitude = toNumber(coords?.latitude, NaN);
+      const longitude = toNumber(coords?.longitude, NaN);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+
+      const next = {
+        id: `${Date.now()}-${Math.round(Math.random() * 100000)}`,
+        type: buildingType,
+        latitude,
+        longitude,
+      };
+
+      setBuildings((prev) => [...prev, next]);
+      setLastAction(t('map.status.building_added', { type: t(`map.building.${buildingType}`) }));
+    },
+    [buildingType, t]
+  );
+
+  const undoBuilding = useCallback(() => {
+    setBuildings((prev) => {
+      if (!prev.length) return prev;
+      const next = prev.slice(0, -1);
+      return next;
+    });
+    setLastAction(t('map.status.building_removed'));
+  }, [t]);
+
+  const clearBuildings = useCallback(() => {
+    setBuildings([]);
+    setLastAction(t('map.status.buildings_cleared'));
+  }, [t]);
+
   const onMapPress = useCallback(
     (coords) => {
-      if (routeBusy) return;
+      if (routeBusy || modesBusy) return;
+
       const latitude = toNumber(coords?.latitude, NaN);
       const longitude = toNumber(coords?.longitude, NaN);
       if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
 
       const clicked = { latitude, longitude, source: 'map' };
+      setLastMapTap(clicked);
       setRouteError('');
+
+      if (buildMode) {
+        addBuilding(clicked);
+        return;
+      }
 
       if (!origin) {
         setOrigin({ ...clicked, source: 'manual' });
         setDestination(null);
         setRoute([]);
         setRouteInfo(null);
+        setModeOptions([]);
+        setSelectedMode('');
+        setRecommendedMode('');
         setLastAction(t('map.status.start_set_tap_b'));
         return;
       }
 
       setDestination(clicked);
-      buildRoute(origin, clicked);
+      setLastAction(t('map.status.selecting_modes'));
+      requestModeOptions(origin, clicked).catch(() => null);
     },
-    [origin, buildRoute, routeBusy, t]
+    [origin, destination, buildMode, addBuilding, modesBusy, routeBusy, requestModeOptions, t]
   );
 
   const mapPoints = useMemo(() => {
@@ -292,15 +528,33 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
       });
     }
 
+    buildings.forEach((building) => {
+      points.push({
+        id: `building-${building.id}`,
+        name: t('map.point.building', { type: t(`map.building.${building.type}`) }),
+        category: markerCategoryByBuilding(building.type),
+        latitude: building.latitude,
+        longitude: building.longitude,
+      });
+    });
+
     return points;
-  }, [origin, destination, t]);
+  }, [origin, destination, buildings, t]);
 
   const buildLocalAgentReply = useCallback(
-    (prompt, overview = transportOverview) => {
+    (prompt, overview = effectiveOverview) => {
       const text = String(prompt || '').toLowerCase();
       const flow = toNumber(overview?.base_flow_vehicles_per_hour, 0);
       const detour = toNumber(overview?.detour_increase_percent, 0);
       const ecology = toNumber(overview?.city_metrics?.ecology, 0);
+
+      if (/здан|building|парк|school|школ/.test(text)) {
+        return t('ai.fallback.buildings', {
+          count: cityImpact.total,
+          flow: cityImpact.flow,
+          ecology: cityImpact.ecology,
+        });
+      }
 
       if (/мост|bridge/.test(text)) {
         return t('ai.fallback.bridge', {
@@ -321,7 +575,7 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
 
       return t('ai.fallback.default');
     },
-    [transportOverview, t]
+    [cityImpact, effectiveOverview, t]
   );
 
   const submitAiPrompt = async () => {
@@ -335,7 +589,9 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
     setAiMessages(nextMessages);
 
     try {
-      const overview = await loadTransportOverview();
+      const baseOverview = await loadTransportOverview();
+      const mergedOverview = applyImpactToOverview(baseOverview, cityImpact);
+      const mergedChart = buildChartData(mergedOverview);
       const history = nextMessages
         .slice(-9, -1)
         .filter((m) => m.role === 'user' || m.role === 'assistant')
@@ -347,9 +603,15 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
           prompt,
           history,
           context: {
-            transport_overview: overview,
-            graph_snapshot: chartData,
-            map_traffic_layer: '2gis-live',
+            transport_overview: mergedOverview,
+            graph_snapshot: mergedChart,
+            map_terrain_enabled: terrainEnabled,
+            route_mode_options: modeOptions,
+            selected_mode: selectedMode || null,
+            recommended_mode: recommendedMode || null,
+            buildings,
+            building_impact: cityImpact,
+            last_map_tap: lastMapTap,
             guest_mode: Boolean(isGuest),
           },
         },
@@ -358,13 +620,10 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
 
       setAiMessages((prev) => [
         ...prev,
-        { role: 'assistant', text: response.data?.answer || buildLocalAgentReply(prompt, overview) },
+        { role: 'assistant', text: response.data?.answer || buildLocalAgentReply(prompt, mergedOverview) },
       ]);
     } catch {
-      setAiMessages((prev) => [
-        ...prev,
-        { role: 'assistant', text: buildLocalAgentReply(prompt) },
-      ]);
+      setAiMessages((prev) => [...prev, { role: 'assistant', text: buildLocalAgentReply(prompt) }]);
     } finally {
       setAiBusy(false);
     }
@@ -394,7 +653,10 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
         <Map3D
           points={mapPoints}
           route={route}
-          apiKey={DGIS_KEY}
+          apiKey={MAPBOX_ACCESS_TOKEN}
+          mapboxStyleLight={MAPBOX_STYLE_LIGHT}
+          mapboxStyleDark={MAPBOX_STYLE_DARK}
+          terrainEnabled={terrainEnabled}
           theme={mapTheme}
           onMapPress={onMapPress}
           style={styles.map}
@@ -403,13 +665,13 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
 
       <View style={styles.mapInfoRow}>
         <Text style={styles.statsText}>
-          {t('map.dgis_key')}: {DGIS_KEY ? t('map.active') : t('map.missing')}
+          {t('map.mapbox_token')}: {MAPBOX_ACCESS_TOKEN ? t('map.active') : t('map.missing')}
         </Text>
         <Text style={styles.statsText}>
-          {t('map.congestion')}: {transportOverview?.congestion_level || t('common.unknown')}
+          {t('map.congestion')}: {effectiveOverview?.congestion_level || t('common.unknown')}
         </Text>
         {loading ? <ActivityIndicator size="small" color="#a78bfa" /> : null}
-        {routeBusy ? <ActivityIndicator size="small" color="#22d3ee" /> : null}
+        {routeBusy || modesBusy ? <ActivityIndicator size="small" color="#22d3ee" /> : null}
         <ActionButton
           label={mapTheme === 'dark' ? t('map.theme.light') : t('map.theme.dark')}
           onPress={() => setMapTheme((prev) => (prev === 'dark' ? 'light' : 'dark'))}
@@ -423,6 +685,54 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
       </View>
 
       <View style={styles.mapInfoRow}>
+        <ActionButton
+          label={terrainEnabled ? t('map.terrain_on') : t('map.terrain_off')}
+          onPress={() => setTerrainEnabled((prev) => !prev)}
+          small
+        />
+        <ActionButton
+          label={buildMode ? t('map.build_mode_off') : t('map.build_mode_on')}
+          onPress={() => {
+            setBuildMode((prev) => {
+              const next = !prev;
+              setLastAction(next ? t('map.status.build_mode_on') : t('map.status.build_mode_off'));
+              return next;
+            });
+          }}
+          active={buildMode}
+          small
+        />
+        <ActionButton
+          label={t('map.undo_building')}
+          onPress={undoBuilding}
+          disabled={!buildings.length}
+          small
+        />
+        <ActionButton
+          label={t('map.clear_buildings')}
+          onPress={clearBuildings}
+          disabled={!buildings.length}
+          danger
+          small
+        />
+      </View>
+
+      {buildMode ? (
+        <View style={styles.mapInfoRow}>
+          <Text style={styles.statsText}>{t('map.build_type')}:</Text>
+          {BUILDING_TYPES.map((type) => (
+            <ActionButton
+              key={type}
+              label={t(`map.building.${type}`)}
+              onPress={() => setBuildingType(type)}
+              active={buildingType === type}
+              small
+            />
+          ))}
+        </View>
+      ) : null}
+
+      <View style={styles.mapInfoRow}>
         <Text style={styles.statsText}>
           {t('map.start_label')}:{' '}
           {origin ? (origin.source === 'gps' ? 'GPS' : t('map.manual')) : t('map.tap_map_a')}
@@ -433,17 +743,43 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
         <ActionButton
           label={t('map.use_my_location')}
           onPress={() => requestGpsOrigin().catch(() => null)}
-          disabled={routeBusy}
+          disabled={routeBusy || modesBusy}
           small
         />
         <ActionButton
           label={t('map.reset_ab')}
           onPress={resetNavigation}
           danger
-          disabled={routeBusy}
+          disabled={routeBusy || modesBusy}
           small
         />
       </View>
+
+      {modeOptions.length ? (
+        <View style={styles.impactCard}>
+          <Text style={styles.impactText}>
+            {t('map.route_mode_title')}: {t(`map.mode.${recommendedMode || modeOptions[0]?.mode || 'driving'}`)}
+          </Text>
+          <View style={styles.modeRow}>
+            {modeOptions.map((option) => {
+              const mode = option?.mode || 'driving';
+              const minutes = Math.round(
+                toNumber(option?.duration_with_traffic_minutes, option?.duration_minutes || 0)
+              );
+
+              return (
+                <ActionButton
+                  key={mode}
+                  label={`${t(`map.mode.${mode}`)} · ${minutes}${t('map.min_short')}`}
+                  onPress={() => onModeSelect(mode)}
+                  active={selectedMode === mode}
+                  small
+                />
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
 
       {routeInfo ? (
         <Text style={styles.metaText}>
@@ -452,8 +788,26 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
             min: Math.round(
               toNumber(routeInfo.duration_with_traffic_minutes, routeInfo.duration_minutes || 0)
             ),
-          })}
+          })}{' '}
+          • {t('map.mode_label')}: {t(`map.mode.${selectedMode || 'driving'}`)}
         </Text>
+      ) : null}
+
+      {buildings.length ? (
+        <View style={styles.impactCard}>
+          <Text style={styles.impactText}>
+            {t('map.buildings_count', { count: cityImpact.total })}
+            {buildingMix ? ` | ${buildingMix}` : ''}
+          </Text>
+          <Text style={styles.metaText}>
+            {t('map.buildings_impact', {
+              flow: cityImpact.flow,
+              detour: cityImpact.detour,
+              ecology: cityImpact.ecology,
+              social: cityImpact.social,
+            })}
+          </Text>
+        </View>
       ) : null}
 
       {routeError ? <Text style={styles.errorText}>{routeError}</Text> : null}
@@ -500,17 +854,17 @@ export default function MainMap({ token, onLogout, isGuest = false }) {
               bezier
             />
 
-            {transportOverview ? (
+            {effectiveOverview ? (
               <View style={styles.impactCard}>
                 <Text style={styles.impactText}>
-                  {t('map.flow')}: {transportOverview.base_flow_vehicles_per_hour} {t('map.vehicles_per_hour')} |{' '}
-                  {t('map.detour')}: {transportOverview.detour_increase_percent}% | {t('map.congestion')}:{' '}
-                  {transportOverview.congestion_level}
+                  {t('map.flow')}: {effectiveOverview.base_flow_vehicles_per_hour} {t('map.vehicles_per_hour')} |{' '}
+                  {t('map.detour')}: {effectiveOverview.detour_increase_percent}% | {t('map.congestion')}:{' '}
+                  {effectiveOverview.congestion_level}
                 </Text>
                 <Text style={styles.metaText}>
-                  {t('map.metric.ecology')}: {transportOverview?.city_metrics?.ecology} |{' '}
-                  {t('map.metric.traffic')}: {transportOverview?.city_metrics?.traffic_load} |{' '}
-                  {t('map.metric.social')}: {transportOverview?.city_metrics?.social_score}
+                  {t('map.metric.ecology')}: {effectiveOverview?.city_metrics?.ecology} |{' '}
+                  {t('map.metric.traffic')}: {effectiveOverview?.city_metrics?.traffic_load} |{' '}
+                  {t('map.metric.social')}: {effectiveOverview?.city_metrics?.social_score}
                 </Text>
               </View>
             ) : null}
@@ -626,6 +980,11 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     flexWrap: 'wrap',
   },
+  modeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
   statsText: {
     color: '#ddd6fe',
     fontSize: 13,
@@ -691,7 +1050,7 @@ const styles = StyleSheet.create({
     borderColor: '#7c3aed',
     backgroundColor: '#190b33',
     padding: 10,
-    gap: 4,
+    gap: 6,
   },
   impactText: {
     color: '#f5f3ff',
@@ -714,6 +1073,10 @@ const styles = StyleSheet.create({
   actionButtonDanger: {
     borderColor: '#9f1239',
     backgroundColor: '#be123c',
+  },
+  actionButtonActive: {
+    borderColor: '#22d3ee',
+    backgroundColor: '#0f766e',
   },
   actionButtonDisabled: {
     opacity: 0.5,
